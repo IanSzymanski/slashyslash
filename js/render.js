@@ -1,0 +1,323 @@
+'use strict';
+// Frame composition, lighting, weather and HUD. Everything renders at 480x270, CSS upscales it.
+
+const Render = {
+  canvas: null, ctx: null, scene: null, light: null, mask: null, vignette: null,
+  weather: [], fps: 60, hpTrail: 100, shTrail: 100,
+
+  init(canvas) {
+    this.canvas = canvas;
+    canvas.width = VIEW_W; canvas.height = VIEW_H;
+    this.ctx = canvas.getContext('2d');
+    this.ctx.imageSmoothingEnabled = false;
+    this.scene = makeCanvas(VIEW_W, VIEW_H);
+    this.light = makeCanvas(VIEW_W, VIEW_H);
+    this.mask = makeCanvas(VIEW_W, VIEW_H);
+    this.vignette = makeCanvas(VIEW_W, VIEW_H);
+    const g = this.vignette.ctx;
+    const grd = g.createRadialGradient(VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.35, VIEW_W / 2, VIEW_H / 2, VIEW_W * 0.62);
+    grd.addColorStop(0, 'rgba(8,4,12,0)');
+    grd.addColorStop(1, 'rgba(8,4,12,0.55)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, VIEW_W, VIEW_H);
+    for (let i = 0; i < 140; i++) {
+      const ash = i < 80;
+      this.weather.push({ ash, x: rand(0, VIEW_W), y: rand(0, VIEW_H), d: rand(0.6, 1.2), s: ash ? rand(8, 22) : rand(220, 300), ph: rand(0, TAU) });
+    }
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+  },
+  resize() {
+    const ww = window.innerWidth, wh = window.innerHeight;
+    let scale = Math.min(ww / VIEW_W, wh / VIEW_H);
+    if (S.visuals.integerScale && scale >= 1) scale = Math.floor(scale);
+    const w = Math.floor(VIEW_W * scale), h = Math.floor(VIEW_H * scale);
+    const app = document.getElementById('app');
+    app.style.width = w + 'px';
+    app.style.height = h + 'px';
+    app.style.setProperty('--ui-scale', (h / 720).toFixed(3));
+    document.getElementById('scanlines').style.backgroundSize = '100% ' + Math.max(2, Math.round(scale)) + 'px';
+  },
+
+  draw(realDt) {
+    const ctx = this.ctx, G = Game, cam = G.cam;
+    this.fps = lerp(this.fps, 1 / Math.max(realDt, 0.001), 0.05);
+    const cx = Math.round(cam.x + cam.ox), cy = Math.round(cam.y + cam.oy);
+    cam.rx = cx; cam.ry = cy;
+    const t = G.realTime;
+    FX.frameLights.length = 0;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+
+    Level.drawBackground(ctx, cx, cy, t);
+
+    // lit foreground
+    const sc = this.scene.ctx;
+    sc.globalCompositeOperation = 'source-over';
+    sc.clearRect(0, 0, VIEW_W, VIEW_H);
+    Level.drawPlay(sc, cx, cy, t);
+    FX.drawDecals(sc, cx, cy);
+    for (const p of G.props) p.draw(sc, cx, cy);
+    for (const e of G.enemies) if (!e.dead) e.draw(sc, cx, cy);
+    FX.drawGhosts(sc, cx, cy);
+    if (G.player) G.player.draw(sc, cx, cy);
+    FX.drawGibs(sc, cx, cy);
+    if (S.visuals.lighting) this.applyLighting(cx, cy, t);
+    ctx.drawImage(this.scene, 0, 0);
+
+    // emissive layer
+    for (const e of G.enemies) if (!e.dead) e.drawEmissive(ctx, cx, cy);
+    for (const h of G.hazards) h.drawEmissive(ctx, cx, cy);
+    for (const pk of G.pickups) pk.drawEmissive(ctx, cx, cy);
+    for (const b of G.projectiles) b.drawEmissive(ctx, cx, cy);
+    FX.drawEmissive(ctx, cx, cy);
+    if (G.player) G.player.drawEmissive(ctx, cx, cy);
+    if (S.visuals.glow) this.drawGlow(ctx, cx, cy);
+    FX.drawTexts(ctx, cx, cy);
+    if (S.visuals.weather) this.drawWeather(ctx, realDt, cx, cy);
+    if (FX.flashA > 0) {
+      ctx.globalAlpha = Math.min(0.7, FX.flashA);
+      ctx.fillStyle = FX.flashColor;
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.globalAlpha = 1;
+      FX.flashA = Math.max(0, FX.flashA - realDt * 6);
+    }
+    ctx.drawImage(this.vignette, 0, 0);
+    if (G.player && (G.state === 'playing' || G.state === 'paused' || G.state === 'over')) this.drawHUD(ctx, realDt);
+    if (S.visuals.showFps) drawText(ctx, Math.round(this.fps) + ' FPS', VIEW_W - 4, VIEW_H - 9, { align: 'right', color: '#7a849c' });
+  },
+
+  gatherLights(cx, cy, t) {
+    const G = Game;
+    Level.addLights(cx, cy, t);
+    if (G.player) G.player.addLights();
+    for (const e of G.enemies) if (!e.dead) e.addLights();
+    for (const b of G.projectiles) b.addLights();
+    for (const h of G.hazards) h.addLights();
+    for (const p of G.props) if (!p.dead) p.addLights();
+    for (const pk of G.pickups) pk.addLights();
+  },
+  applyLighting(cx, cy, t) {
+    this.gatherLights(cx, cy, t);
+    const L = this.light.ctx;
+    L.globalCompositeOperation = 'source-over';
+    L.globalAlpha = 1;
+    L.fillStyle = '#9a84ac';
+    L.fillRect(0, 0, VIEW_W, VIEW_H);
+    L.globalCompositeOperation = 'lighter';
+    const put = (x, y, r, color, a) => {
+      if (x + r < 0 || x - r > VIEW_W || y + r < 0 || y - r > VIEW_H || a <= 0.01) return;
+      L.globalAlpha = Math.min(1, a);
+      L.drawImage(glowSprite(color), Math.round(x - r), Math.round(y - r), Math.round(r * 2), Math.round(r * 2));
+    };
+    for (const l of FX.frameLights) put(l.x - cx, l.y - cy, l.r, l.color, l.a);
+    for (const l of FX.lights) put(l.x - cx, l.y - cy, l.r, l.color, l.a * (1 - l.t / l.dur));
+    if (FX.flashA > 0) { L.globalAlpha = FX.flashA * 0.6; L.fillStyle = '#ffffff'; L.fillRect(0, 0, VIEW_W, VIEW_H); }
+    L.globalAlpha = 1;
+    // restrict the light map to the foreground's alpha, then multiply
+    const M = this.mask.ctx;
+    M.globalCompositeOperation = 'source-over';
+    M.clearRect(0, 0, VIEW_W, VIEW_H);
+    M.drawImage(this.light, 0, 0);
+    M.globalCompositeOperation = 'destination-in';
+    M.drawImage(this.scene, 0, 0);
+    M.globalCompositeOperation = 'source-over';
+    const sc = this.scene.ctx;
+    sc.globalCompositeOperation = 'multiply';
+    sc.drawImage(this.mask, 0, 0);
+    sc.globalCompositeOperation = 'source-over';
+  },
+  drawGlow(ctx, cx, cy) {
+    if (!S.visuals.lighting) this.gatherLights(cx, cy, Game.realTime);
+    ctx.globalCompositeOperation = 'lighter';
+    const put = (x, y, r, color, a) => {
+      if (x + r < 0 || x - r > VIEW_W || y + r < 0 || y - r > VIEW_H || a <= 0.01) return;
+      ctx.globalAlpha = Math.min(1, a);
+      ctx.drawImage(glowSprite(color), Math.round(x - r), Math.round(y - r), Math.round(r * 2), Math.round(r * 2));
+    };
+    for (const l of FX.frameLights) put(l.x - cx, l.y - cy, l.r * 0.6, l.color, l.a * 0.22);
+    for (const l of FX.lights) put(l.x - cx, l.y - cy, l.r * 0.7, l.color, l.a * 0.4 * (1 - l.t / l.dur));
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  },
+  drawWeather(ctx, dt, cx, cy) {
+    const sdt = Game.state === 'playing' || Game.state === 'menu' ? dt * Game.slowScale : 0;
+    for (const w of this.weather) {
+      w.ph += sdt;
+      if (w.ash) { w.y += w.s * sdt; w.x += Math.sin(w.ph * 1.3) * 6 * sdt - 4 * sdt; }
+      else { w.y += w.s * sdt; w.x -= w.s * 0.25 * sdt; }
+      const x = (((w.x - cx * w.d * 0.5) % VIEW_W) + VIEW_W) % VIEW_W;
+      const y = (((w.y - cy * w.d * 0.5) % VIEW_H) + VIEW_H) % VIEW_H;
+      if (w.ash) {
+        ctx.fillStyle = w.d > 1 ? '#b8a0b0' : '#6a5a6a';
+        ctx.fillRect(Math.round(x), Math.round(y), 1, 1);
+      } else {
+        ctx.fillStyle = 'rgba(150,140,190,0.35)';
+        pline(ctx, x, y, x - 1, y + 4, 1);
+      }
+    }
+  },
+
+  // ---------- HUD ----------
+  drawHUD(ctx, dt) {
+    const G = Game, p = G.player, t = G.realTime;
+    this.hpTrail = this.hpTrail > p.hp ? Math.max(p.hp, this.hpTrail - dt * 40) : p.hp;
+    this.shTrail = this.shTrail > p.shield ? Math.max(p.shield, this.shTrail - dt * 60) : p.shield;
+    const x = 8, y = 8, w = 96;
+    // shield
+    ctx.fillStyle = '#0b0910'; ctx.fillRect(x - 1, y - 1, w + 2, 6);
+    ctx.fillStyle = '#0e2230'; ctx.fillRect(x, y, w, 4);
+    ctx.fillStyle = '#d8f4ff'; ctx.fillRect(x, y, Math.round((w * this.shTrail) / PC.MAX_SHIELD), 4);
+    const flash = p.shieldFlash > 0 && ((t * 20) | 0) % 2;
+    ctx.fillStyle = flash ? '#ff3048' : p.shield < PC.TETHER_COST ? '#2a7aa0' : '#3ad0ff';
+    ctx.fillRect(x, y, Math.round((w * p.shield) / PC.MAX_SHIELD), 4);
+    ctx.fillStyle = '#a8ecff'; ctx.fillRect(x, y, Math.round((w * p.shield) / PC.MAX_SHIELD), 1);
+    ctx.fillStyle = '#0b0910';
+    for (let i = 1; i * PC.TETHER_COST < PC.MAX_SHIELD; i++) ctx.fillRect(x + Math.round((w * i * PC.TETHER_COST) / PC.MAX_SHIELD), y + 3, 1, 1);
+    if (p.shieldDelay <= 0 && p.shield < PC.MAX_SHIELD && ((t * 6) | 0) % 2) { ctx.fillStyle = '#ffffff'; ctx.fillRect(x + Math.round((w * p.shield) / PC.MAX_SHIELD), y, 1, 4); }
+    // hp
+    const y2 = y + 7;
+    ctx.fillStyle = '#0b0910'; ctx.fillRect(x - 1, y2 - 1, w + 2, 6);
+    ctx.fillStyle = '#300a12'; ctx.fillRect(x, y2, w, 4);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(x, y2, Math.round((w * this.hpTrail) / PC.MAX_HP), 4);
+    const low = p.hp < 30 && ((t * 5) | 0) % 2;
+    ctx.fillStyle = low ? '#ff8a9a' : '#ff3048'; ctx.fillRect(x, y2, Math.round((w * p.hp) / PC.MAX_HP), 4);
+    ctx.fillStyle = '#ff9aa8'; ctx.fillRect(x, y2, Math.round((w * p.hp) / PC.MAX_HP), 1);
+    drawText(ctx, String(Math.ceil(p.shield)), x + w + 4, y - 1, { color: '#3ad0ff' });
+    drawText(ctx, String(Math.ceil(p.hp)), x + w + 4, y2 - 1, { color: '#ff5a6a' });
+    // dash charges
+    for (let i = 0; i < PC.DASH_CHARGES; i++) {
+      const dx = x + 3 + i * 9, dy = y2 + 10;
+      const full = i < p.dashCharges;
+      const part = i === p.dashCharges ? p.dashRecharge / PC.DASH_RECHARGE : 0;
+      ctx.fillStyle = '#0b0910'; this.diamond(ctx, dx, dy, 4);
+      ctx.fillStyle = full ? '#ffffff' : '#3a1a24'; this.diamond(ctx, dx, dy, 3);
+      if (!full && part > 0) {
+        ctx.fillStyle = '#ff3a52';
+        const hh = Math.round(part * 7);
+        for (let yy = 0; yy < hh; yy++) { const ry = dy + 3 - yy, half = 3 - Math.abs(ry - dy); if (half >= 0) ctx.fillRect(dx - half, ry, half * 2 + 1, 1); }
+      }
+    }
+    drawText(ctx, 'DASH', x + 22, y2 + 8, { color: '#7a849c' });
+    // ultimate
+    this.drawUltMeter(ctx, 22, VIEW_H - 22, p, t);
+    // wave info
+    const D = Director;
+    if (D.wave > 0) {
+      drawText(ctx, (G.mode === 'demo' ? 'DEMO ' : 'ENDLESS ') + 'WAVE ' + D.wave, VIEW_W / 2, 6, { align: 'center', color: '#ffd0d8' });
+      let sub;
+      if (D.state === 'fight') sub = D.remaining() + ' HOSTILES';
+      else if (D.state === 'break') sub = D.mode === 'demo' && D.wave >= DEMO_WAVES.length ? '' : 'NEXT WAVE ' + Math.ceil(D.breakT);
+      if (sub) drawText(ctx, sub, VIEW_W / 2, 14, { align: 'center', color: '#9a8aa8' });
+    }
+    // score + combo
+    drawText(ctx, String(G.stats.score).padStart(7, '0'), VIEW_W - 8, 6, { align: 'right', color: '#ffffff' });
+    if (G.combo >= 2) {
+      const rank = rankFor(G.combo);
+      const pop = G.comboPop > 0 ? 1 : 0;
+      drawText(ctx, G.combo + ' HIT', VIEW_W - 8, 16 - pop, { align: 'right', color: '#ff8a9a', scale: 2 });
+      if (rank) drawText(ctx, rank.r, VIEW_W - 8, 30, { align: 'right', color: rank.c, scale: 3 });
+      const bw = 40;
+      ctx.fillStyle = '#300a12'; ctx.fillRect(VIEW_W - 8 - bw, 50, bw, 1);
+      ctx.fillStyle = '#ff3048'; ctx.fillRect(VIEW_W - 8 - Math.round((bw * G.comboT) / 2.5), 50, Math.round((bw * G.comboT) / 2.5), 1);
+    }
+    // announcements
+    let ay = 64;
+    for (const a of G.announcements) {
+      const k = a.t / a.dur;
+      if (k > 0.8 && ((a.t * 20) | 0) % 2) { ay += a.small ? 14 : 30; continue; }
+      const sc = a.small ? 1 : a.t < 0.1 ? 4 : 3;
+      const slide = a.t < 0.12 ? Math.round((1 - a.t / 0.12) * 30) : 0;
+      drawText(ctx, a.text, VIEW_W / 2 + slide, ay, { align: 'center', color: a.color, scale: sc, outline: '#0b0910' });
+      if (a.sub) drawText(ctx, a.sub, VIEW_W / 2 - slide, ay + sc * 5 + 4, { align: 'center', color: '#e8d8e0' });
+      ay += a.small ? 16 : 32;
+    }
+    if (S.visuals.indicators) this.drawIndicators(ctx);
+    if (G.mode === 'demo' && G.stats.time < 16 && !p.dead) {
+      const k = G.stats.time > 13 ? 1 - (G.stats.time - 13) / 3 : 1;
+      if (k > 0 && (k > 0.3 || ((t * 10) | 0) % 2)) {
+        const l1 = `${hudKey('left')}/${hudKey('right')} MOVE   ${hudKey('jump')} JUMP x2   ${hudKey('crouch')} SLIDE   ${hudKey('dash')} DASH`;
+        const l2 = `${hudKey('attack')} SLASH   ${hudKey('crouch')}+${hudKey('attack')} AIR PLUNGE   HOLD ${hudKey('sheathe')} DRAW   TAP ${hudKey('sheathe')} PARRY`;
+        const l3 = `${hudKey('tether')} TAP YANK / HOLD ZIP   HOLD ${hudKey('ultimate')} ULTIMATE`;
+        ctx.globalAlpha = Math.min(1, k);
+        ctx.fillStyle = 'rgba(8,5,12,0.6)';
+        ctx.fillRect(VIEW_W / 2 - 150, VIEW_H - 40, 300, 30);
+        drawText(ctx, l1, VIEW_W / 2, VIEW_H - 36, { align: 'center', color: '#e8d8e0' });
+        drawText(ctx, l2, VIEW_W / 2, VIEW_H - 27, { align: 'center', color: '#e8d8e0' });
+        drawText(ctx, l3, VIEW_W / 2, VIEW_H - 18, { align: 'center', color: '#ff8a9a' });
+        ctx.globalAlpha = 1;
+      }
+    }
+    if (p.hp < 30 && !p.dead) {
+      ctx.globalAlpha = 0.18 + Math.sin(t * 6) * 0.08;
+      ctx.fillStyle = '#ff0020';
+      ctx.fillRect(0, 0, VIEW_W, 3); ctx.fillRect(0, VIEW_H - 3, VIEW_W, 3); ctx.fillRect(0, 0, 3, VIEW_H); ctx.fillRect(VIEW_W - 3, 0, 3, VIEW_H);
+      ctx.globalAlpha = 1;
+    }
+    if (G.state === 'playing') this.drawCrosshair(ctx, p);
+  },
+  diamond(ctx, cx, cy, r) {
+    for (let yy = -r; yy <= r; yy++) { const h = r - Math.abs(yy); ctx.fillRect(cx - h, cy + yy, h * 2 + 1, 1); }
+  },
+  drawUltMeter(ctx, cx, cy, p, t) {
+    const ready = p.ultCharge >= 1, active = !!p.ult;
+    const spin = active ? p.ult.spin : ready ? t * 4 : 0;
+    const n = 12;
+    for (let i = 0; i < n; i++) {
+      const a = spin + (i / n) * TAU - Math.PI / 2;
+      const lit = active || i / n < p.ultCharge;
+      ctx.fillStyle = '#0b0910';
+      pline(ctx, cx + Math.cos(a) * 7, cy + Math.sin(a) * 7, cx + Math.cos(a + 0.3) * 12, cy + Math.sin(a + 0.3) * 12, 3);
+      ctx.fillStyle = lit ? (ready && ((t * 8) | 0) % 2 ? '#ffffff' : '#ff3048') : '#3a1a24';
+      pline(ctx, cx + Math.cos(a) * 7, cy + Math.sin(a) * 7, cx + Math.cos(a + 0.3) * 11, cy + Math.sin(a + 0.3) * 11, 1);
+    }
+    ctx.fillStyle = '#0b0910'; pdisc(ctx, cx, cy, 7);
+    ctx.fillStyle = active || ready ? '#b8142a' : '#3a1a24'; pdisc(ctx, cx, cy, 6);
+    const pct = Math.floor(p.ultCharge * 100);
+    if (active) drawText(ctx, 'SAW', cx, cy - 2, { align: 'center', color: '#ffffff' });
+    else if (ready) {
+      drawText(ctx, hudKey('ultimate').slice(0, 3), cx, cy - 2, { align: 'center', color: '#ffffff' });
+      drawText(ctx, 'HOLD ' + hudKey('ultimate') + ' - SAWBLADE', cx + 16, cy - 2, { color: ((t * 3) | 0) % 2 ? '#ff8a9a' : '#ffffff' });
+    } else {
+      drawText(ctx, pct + '', cx, cy - 2, { align: 'center', color: '#9a8aa8' });
+      drawText(ctx, 'SAWBLADE', cx + 16, cy - 2, { color: '#5a4a5a' });
+    }
+  },
+  drawIndicators(ctx) {
+    const cam = Game.cam;
+    for (const e of Game.enemies) {
+      if (e.dead) continue;
+      const sx = e.x - cam.rx, sy = e.cy - cam.ry;
+      if (sx > -4 && sx < VIEW_W + 4 && sy > -4 && sy < VIEW_H + 4) continue;
+      const ex = clamp(sx, 8, VIEW_W - 8), ey = clamp(sy, 22, VIEW_H - 8);
+      const a = Math.atan2(sy - ey, sx - ex);
+      ctx.fillStyle = e.windingUp() ? '#ffffff' : e.spawning ? '#ff9a3a' : '#ff5a3a';
+      for (let i = 0; i < 4; i++) {
+        const px = ex + Math.cos(a) * (3 - i), py = ey + Math.sin(a) * (3 - i);
+        const h = i;
+        ctx.fillRect(Math.round(px - Math.sin(a) * h), Math.round(py + Math.cos(a) * h), 1, 1);
+        ctx.fillRect(Math.round(px + Math.sin(a) * h), Math.round(py - Math.cos(a) * h), 1, 1);
+        ctx.fillRect(Math.round(px), Math.round(py), 1, 1);
+      }
+    }
+  },
+  drawCrosshair(ctx, p) {
+    const x = Math.round(Input.mx), y = Math.round(Input.my);
+    const [pcx, pcy] = p.chest();
+    const inRange = p.ult || dist(p.aimX, p.aimY, pcx, pcy) <= PC.TETHER_RANGE;
+    const canTether = p.ult || p.shield >= PC.TETHER_COST || S.gameplay.invincible;
+    const col = inRange && canTether ? '#ff3a52' : '#7a6a7a';
+    ctx.fillStyle = '#0b0910';
+    ctx.fillRect(x - 5, y - 1, 3, 3); ctx.fillRect(x + 3, y - 1, 3, 3); ctx.fillRect(x - 1, y - 5, 3, 3); ctx.fillRect(x - 1, y + 3, 3, 3);
+    ctx.fillStyle = col;
+    ctx.fillRect(x - 4, y, 2, 1); ctx.fillRect(x + 3, y, 2, 1); ctx.fillRect(x, y - 4, 1, 2); ctx.fillRect(x, y + 3, 1, 2);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(x, y, 1, 1);
+  },
+};
+
+function rankFor(c) {
+  const R = [[80, 'SSS', '#ffffff'], [55, 'SS', '#ffd070'], [36, 'S', '#ffb040'], [22, 'A', '#ff5a6a'], [12, 'B', '#d0a0ff'], [5, 'C', '#9ab0d0']];
+  for (const [n, r, c2] of R) if (c >= n) return { r, c: c2 };
+  return null;
+}
