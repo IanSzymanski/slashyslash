@@ -99,7 +99,7 @@ const Render = {
     const C = G.cine;
     if (C && C.zoom > 1 && C.focus) this.zoomTo(ctx, C.focus.x - cx, C.focus.y - 12 - cy, C.zoom);
     ctx.drawImage(this.vignette, 0, 0);
-    const inGame = G.player && (G.state === 'playing' || G.state === 'paused' || G.state === 'over');
+    const inGame = G.player && (G.state === 'playing' || G.state === 'paused' || G.state === 'over' || G.state === 'pick');
     if (inGame && !G.cineActive()) this.drawHUD(ctx, realDt);
     if (C) this.drawCine(ctx, C, t);
     if (S.visuals.showFps) drawText(ctx, Math.round(this.fps) + ' FPS', VIEW_W - 4, VIEW_H - 9, { align: 'right', color: '#7a849c' });
@@ -119,6 +119,12 @@ const Render = {
     if (bh <= 0) return;
     ctx.fillStyle = '#050308';
     ctx.fillRect(0, 0, VIEW_W, bh); ctx.fillRect(0, VIEW_H - bh, VIEW_W, bh);
+    if (C.skippable && !C.closing && k > 0.9) {
+      const hold = clamp(C.skipHold / 0.5, 0, 1);
+      drawText(ctx, 'HOLD ' + hudKey('sheathe') + ' TO SKIP', VIEW_W - 8, VIEW_H - 12, { align: 'right', color: hold > 0 ? '#ffffff' : '#7a6a7a' });
+      ctx.fillStyle = '#3a3040'; ctx.fillRect(VIEW_W - 58, VIEW_H - 5, 50, 1);
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(VIEW_W - 58, VIEW_H - 5, Math.round(50 * hold), 1);
+    }
     if (C.caption && k > 0.9) {
       const cap = C.caption;
       drawText(ctx, cap.text, VIEW_W / 2, VIEW_H - bh + 7, { align: 'center', color: cap.color || '#ffffff', scale: 2 });
@@ -171,7 +177,7 @@ const Render = {
     const L = this.light.ctx;
     L.globalCompositeOperation = 'source-over';
     L.globalAlpha = 1;
-    L.fillStyle = '#9a84ac';
+    L.fillStyle = Game.mod('blackout') ? '#2e2638' : '#9a84ac';
     L.fillRect(0, 0, VIEW_W, VIEW_H);
     L.globalCompositeOperation = 'lighter';
     const put = (x, y, r, color, a) => {
@@ -244,6 +250,7 @@ const Render = {
     ctx.fillStyle = '#0b0910';
     for (let i = 1; i * PC.TETHER_COST < PC.MAX_SHIELD; i++) ctx.fillRect(x + Math.round((w * i * PC.TETHER_COST) / PC.MAX_SHIELD), y + 3, 1, 1);
     if (p.shieldDelay <= 0 && p.shield < PC.MAX_SHIELD && ((t * 6) | 0) % 2) { ctx.fillStyle = '#ffffff'; ctx.fillRect(x + Math.round((w * p.shield) / PC.MAX_SHIELD), y, 1, 4); }
+    if (p.shieldFullFlash > 0) { ctx.globalAlpha = p.shieldFullFlash / 0.45; ctx.fillStyle = '#ffffff'; ctx.fillRect(x - 1, y - 1, w + 2, 6); ctx.globalAlpha = 1; }
     // hp
     const y2 = y + 7;
     ctx.fillStyle = '#0b0910'; ctx.fillRect(x - 1, y2 - 1, w + 2, 6);
@@ -271,6 +278,14 @@ const Render = {
       }
     }
     drawText(ctx, 'DASH', x + 22, y2 + 8, { color: '#7a849c' });
+    // upgrades picked this run
+    let ux = x;
+    for (const id of G.upgrades) {
+      ctx.fillStyle = '#0b0910'; ctx.fillRect(ux - 1, y2 + 17, 13, 9);
+      ctx.fillStyle = '#3a2a1a'; ctx.fillRect(ux, y2 + 18, 11, 7);
+      drawText(ctx, UPGRADES[id].tag, ux + 6, y2 + 19, { align: 'center', color: '#ffd070', outline: null });
+      ux += 14;
+    }
     // parry stance: cooldown and shield cost
     {
       const px = x + 48, py = y2 + 10;
@@ -292,41 +307,58 @@ const Render = {
     const D = Director;
     const boss = G.enemies.find((e) => e.isBoss && !e.dead && !e.spawning);
     if (boss) this.drawBossBar(ctx, boss, t);
-    else if (D.wave > 0) {
+    else if (G.mode === 'training') {
+      drawText(ctx, 'TRAINING', VIEW_W / 2, 6, { align: 'center', color: '#ffd070' });
+      drawText(ctx, hudKey('pause') + ' OPENS THE SPAWN PANEL' + (D.modifier ? ' - ' + WAVE_MODIFIERS[D.modifier].name : ''), VIEW_W / 2, 14, { align: 'center', color: '#9a8aa8' });
+      const dummy = G.enemies.find((e) => e.type === 'dummy');
+      if (dummy && dummy.dps !== undefined) drawText(ctx, 'DPS ' + dummy.dps, dummy.x - G.cam.rx, dummy.y - 34 - G.cam.ry, { align: 'center', color: '#ffd070' });
+    } else if (D.wave > 0) {
       const label = G.mode === 'duel' ? 'MELEE DUEL' : G.mode === 'boss' ? 'RIVAL FIGHT' : (G.mode === 'demo' ? 'DEMO ' : 'ENDLESS ') + 'WAVE ' + D.wave;
       drawText(ctx, label, VIEW_W / 2, 6, { align: 'center', color: '#ffd0d8' });
       let sub;
-      if (D.state === 'fight') sub = D.remaining() + ' HOSTILES';
+      if (D.state === 'fight') sub = D.remaining() + ' HOSTILES' + (D.modifier ? ' - ' + WAVE_MODIFIERS[D.modifier].name : '');
       else if (D.state === 'break') sub = D.wave >= D.lastWave() ? '' : 'NEXT WAVE ' + Math.ceil(D.breakT);
       if (sub) drawText(ctx, sub, VIEW_W / 2, 14, { align: 'center', color: '#9a8aa8' });
     }
     // score + combo
     drawText(ctx, String(G.stats.score).padStart(7, '0'), VIEW_W - 8, 6, { align: 'right', color: '#ffffff' });
     if (G.combo >= 2) {
-      const rank = rankFor(G.combo);
       const pop = G.comboPop > 0 ? 1 : 0;
       drawText(ctx, G.combo + ' HIT', VIEW_W - 8, 16 - pop, { align: 'right', color: '#ff8a9a', scale: 2 });
-      if (rank) drawText(ctx, rank.r, VIEW_W - 8, 30, { align: 'right', color: rank.c, scale: 3 });
-      const bw = 40;
-      ctx.fillStyle = '#300a12'; ctx.fillRect(VIEW_W - 8 - bw, 50, bw, 1);
-      ctx.fillStyle = '#ff3048'; ctx.fillRect(VIEW_W - 8 - Math.round((bw * G.comboT) / 2.5), 50, Math.round((bw * G.comboT) / 2.5), 1);
     }
-    // announcements
-    let ay = 64;
+    // style rank: grows with varied moves, multiplies score and ultimate charge
+    const rank = G.rank();
+    if (rank || G.style > 1) {
+      const i = rank ? STYLE_RANKS.indexOf(rank) : STYLE_RANKS.length;
+      const next = STYLE_RANKS[i - 1], lo = rank ? rank.th : 0;
+      const k = next ? clamp((G.style - lo) / (next.th - lo), 0, 1) : 1;
+      if (rank) {
+        const big = G.rankPop > 0 ? 4 : 3;
+        drawText(ctx, rank.r, VIEW_W - 8, 30 - (big - 3) * 2, { align: 'right', color: rank.c, scale: big });
+        drawText(ctx, 'x' + rank.mul.toFixed(2), VIEW_W - 8, 47, { align: 'right', color: '#9a8aa8' });
+      }
+      const bw = 40;
+      ctx.fillStyle = '#300a12'; ctx.fillRect(VIEW_W - 8 - bw, 54, bw, 2);
+      ctx.fillStyle = rank ? rank.c : '#9ab0d0'; ctx.fillRect(VIEW_W - 8 - bw, 54, Math.round(bw * k), 2);
+    }
+    // announcements: big between fights, smaller and higher up while enemies are active
+    const combat = D.state === 'fight' && G.enemies.some((e) => !e.dead && !e.spawning);
+    let ay = combat ? 34 : 64;
     for (const a of G.announcements) {
       const k = a.t / a.dur;
-      if (k > 0.8 && ((a.t * 20) | 0) % 2) { ay += a.small ? 14 : 30; continue; }
-      const sc = a.small ? 1 : a.t < 0.1 ? 4 : 3;
+      const sc = combat ? (a.small ? 1 : 2) : a.small ? 1 : a.t < 0.1 ? 4 : 3;
+      const step = combat ? (a.small ? 15 : 22) : a.small ? 16 : 32;
+      if (k > 0.8 && ((a.t * 20) | 0) % 2) { ay += step; continue; }
       const slide = a.t < 0.12 ? Math.round((1 - a.t / 0.12) * 30) : 0;
       drawText(ctx, a.text, VIEW_W / 2 + slide, ay, { align: 'center', color: a.color, scale: sc, outline: '#0b0910' });
-      if (a.sub) drawText(ctx, a.sub, VIEW_W / 2 - slide, ay + sc * 5 + 4, { align: 'center', color: '#e8d8e0' });
-      ay += a.small ? 16 : 32;
+      if (a.sub) drawText(ctx, a.sub, VIEW_W / 2 - slide, ay + sc * 5 + 3, { align: 'center', color: '#e8d8e0', outline: combat ? '#0b0910' : undefined });
+      ay += step;
     }
     if (S.visuals.indicators) this.drawIndicators(ctx);
     if (G.mode === 'demo' && G.stats.time < 16 && !p.dead) {
       const k = G.stats.time > 13 ? 1 - (G.stats.time - 13) / 3 : 1;
       if (k > 0 && (k > 0.3 || ((t * 10) | 0) % 2)) {
-        const l1 = `${hudKey('left')}/${hudKey('right')} MOVE   ${hudKey('jump')} JUMP x2   ${hudKey('crouch')} SLIDE/DROP   ${hudKey('dash')} DASH`;
+        const l1 = `${hudKey('left')}/${hudKey('right')} MOVE   ${hudKey('jump')} JUMP x2   ${hudKey('crouch')} SLIDE, x2 DROP   ${hudKey('dash')} DASH`;
         const l2 = `${hudKey('attack')} SLASH   ${hudKey('dash')}+${hudKey('attack')} DASH SLASH   ${hudKey('crouch')}+${hudKey('attack')} PLUNGE   ${hudKey('sheathe')} PARRY`;
         const l3 = `${hudKey('tether')} TAP FLING / HOLD ZIP / GRAB   HOLD ${hudKey('ultimate')} ULTIMATE`;
         ctx.globalAlpha = Math.min(1, k);
@@ -387,7 +419,7 @@ const Render = {
       ctx.fillStyle = '#4af0ff';
       for (let i = 0; i < w; i += 2) if (((i + ((t * 20) | 0)) >> 1) % 3) ctx.fillRect(x + i, y, 1, 4);
       ctx.globalAlpha = 1;
-      drawText(ctx, 'SHIELDED - TETHER ITS GRENADE, SLASH IT BACK', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
+      drawText(ctx, b.cracks ? `SHIELD CRACKED ${b.cracks}/3 - RETURN BOLTS OR REBOUND THE GRENADE` : 'SHIELDED - REBOUND ITS GRENADE OR RETURN 3 BOLTS', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
     } else if (b.stunT > 0) drawText(ctx, 'STUNNED', VIEW_W / 2, y + 7, { align: 'center', color: '#ffffff' });
     else if (b.phase === 2) drawText(ctx, b.guardT > 0 ? 'GUARDING - BAIT THE RIPOSTE AND PARRY IT' : 'LIMITERS OFF - PARRY, THEN PARRY ITS RIPOSTE', VIEW_W / 2, y + 7, { align: 'center', color: '#ff8a9a' });
     else drawText(ctx, 'SHIELD BACK IN ' + Math.ceil(b.shieldDownT), VIEW_W / 2, y + 7, { align: 'center', color: '#7a9aa6' });
@@ -425,8 +457,4 @@ const Render = {
   },
 };
 
-function rankFor(c) {
-  const R = [[80, 'SSS', '#ffffff'], [55, 'SS', '#ffd070'], [36, 'S', '#ffb040'], [22, 'A', '#ff5a6a'], [12, 'B', '#d0a0ff'], [5, 'C', '#9ab0d0']];
-  for (const [n, r, c2] of R) if (c >= n) return { r, c: c2 };
-  return null;
-}
+

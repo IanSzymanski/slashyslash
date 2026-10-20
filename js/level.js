@@ -55,6 +55,8 @@ const Level = {
     P_(2190, 300, 70, 'girder');
 
     this.all = this.solids.concat(this.platforms);
+    // sniper perches: ledges high enough to need a tether but low enough to stay on screen from the street
+    this.perches = this.platforms.filter((q) => q.y >= 220 && q.y <= 300 && q.w >= 40).map((q) => ({ x: q.x + q.w / 2, y: q.y }));
     this.spawnGround = [70, 270, 470, 700, 900, 1060, 1250, 1450, 1650, 1850, 2050, 2280].map((x) => ({ x, y: G }));
     this.spawnHigh = [
       { x: 180, y: 335 }, { x: 460, y: 205 }, { x: 730, y: 320 }, { x: 920, y: 335 }, { x: 1220, y: 175 },
@@ -759,6 +761,7 @@ const Level = {
       FX.frameLight(s.x + s.w / 2, s.y + 6, 34, '#ffc060', on ? 0.6 : 0.35);
     }
     for (const l of this.lamps) {
+      if (Game.mod('blackout')) continue;
       const on = !l.flick || Math.sin(t * 13 + l.x) > -0.6 || Math.random() < 0.5;
       if (!on) continue;
       FX.frameLight(l.hx, l.hy + 2, 70, '#ffb070', 0.75);

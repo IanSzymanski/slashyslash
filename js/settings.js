@@ -42,10 +42,10 @@ const DEFAULT_SETTINGS = {
     preset: 'normal',
     health: 1, damage: 1, speed: 1, count: 1, aggression: 1, telegraph: 1,
     maxAlive: 10, waveBreak: 4,
-    scrapper: true, gunner: true, drone: true, brute: true, bossEndless: true,
+    scrapper: true, gunner: true, drone: true, brute: true, shielder: true, crawler: true, grenadier: true, sniper: true, bossEndless: true,
   },
   gameplay: { parryWindow: 0.2, ultKills: 12, invincible: false, ultimate: 'sawblade' },
-  controls: { bindings: deepClone(DEFAULT_BINDINGS), dropHold: true },
+  controls: { bindings: deepClone(DEFAULT_BINDINGS), dropDoubleTap: true },
   audio: { master: 0.8, sfx: 0.9, music: 0.45, muteOnBlur: true },
   visuals: {
     shake: 1, hitstop: 1, particles: 1, lookAhead: 0.35,
@@ -105,6 +105,10 @@ const SETTINGS_SCHEMA = {
     { type: 'toggle', key: 'enemies.gunner', label: 'Gunners (ranged)' },
     { type: 'toggle', key: 'enemies.drone', label: 'Drones (flying divers)' },
     { type: 'toggle', key: 'enemies.brute', label: 'Brutes (heavy)' },
+    { type: 'toggle', key: 'enemies.shielder', label: 'Shield scrappers (parry the bash)' },
+    { type: 'toggle', key: 'enemies.crawler', label: 'Armoured crawlers (plunge or ground cut)' },
+    { type: 'toggle', key: 'enemies.grenadier', label: 'Grenadiers (rebound the grenade)' },
+    { type: 'toggle', key: 'enemies.sniper', label: 'Rooftop snipers (tether up)' },
     { type: 'toggle', key: 'enemies.bossEndless', label: 'Rival boss every 8th endless wave' },
     { type: 'heading', label: 'Player' },
     { type: 'range', key: 'gameplay.parryWindow', label: 'Parry window', min: 0.08, max: 0.45, step: 0.01, fmt: 'ms' },
@@ -113,7 +117,7 @@ const SETTINGS_SCHEMA = {
   ],
   controls: [
     { type: 'bindings' },
-    { type: 'toggle', key: 'controls.dropHold', label: 'Hold crouch on a platform to drop through it' },
+    { type: 'toggle', key: 'controls.dropDoubleTap', label: 'Double-tap crouch to drop through platforms (off: hold crouch)' },
   ],
   audio: [
     { type: 'range', key: 'audio.master', label: 'Master volume', min: 0, max: 1, step: 0.01, fmt: '%' },

@@ -8,8 +8,18 @@ const ENEMY_DEFS = {
   brute: { hp: 250, w: 20, h: 31, speed: 42, score: 450, mass: 3.5, dmg: 22, heavy: true, debris: ['#3a3a44', '#55555f', '#24242c', '#7a3e28', '#ff7a2a'] },
 };
 const ENEMY_BASE_STATE = { scrapper: 'chase', gunner: 'move', drone: 'hover', brute: 'walk' };
+const ENEMY_LIGHT = { scrapper: '#c8ff3a', gunner: '#ffaa30', brute: '#ff7a2a', shielder: '#ffd040', crawler: '#ff3a3a', grenadier: '#4af0ff', sniper: '#ff3a52' };
+const WINDUP_STATES = new Set(['windup', 'aim', 'tele', 'punchWind', 'slamWind', 'bashWind', 'lungeWind', 'throwWind']);
 // The melee glint flashes this long before a hit lands, so a reaction to it lands inside the parry window.
 const GLINT_LEAD = 0.28;
+// Melee attack tokens: only this many enemies may wind up or swing at once; the rest hold back.
+const MELEE_STATES = new Set(['windup', 'strike', 'punchWind', 'punch', 'tele', 'dive', 'bashWind', 'bash', 'lungeWind', 'lunge']);
+function meleeTokenLimit() { return clamp(Math.round(2 * S.enemies.aggression), 1, 4); }
+function meleeTokensFree(self) {
+  let n = 0;
+  for (const e of Game.enemies) if (e !== self && !e.dead && !e.spawning && MELEE_STATES.has(e.state)) n++;
+  return n < meleeTokenLimit();
+}
 
 class Enemy {
   constructor(type, x, y, scale = {}) {
@@ -25,6 +35,7 @@ class Enemy {
     this.tethered = false; this.cutMark = 0; this.poise = 0;
     this.speedVar = rand(0.88, 1.12); this.aim = 0; this.side = chance(0.5) ? 1 : -1; this.jumpCD = 0;
     this.struck = false; this.walk = 0; this.onGround = false;
+    if (this.initType) this.initType();
   }
   get cy() { return this.y - this.h / 2; }
   setState(s) { this.state = s; this.st = 0; this.glinted = false; }
@@ -34,12 +45,18 @@ class Enemy {
     if (this.type === 'scrapper' && s === 'windup') return this.tele(0.45);
     if (this.type === 'brute' && s === 'punchWind') return this.tele(0.55);
     if (this.type === 'drone' && s === 'tele') return this.tele(0.5);
+    if (this.type === 'shielder' && s === 'bashWind') return this.tele(0.5);
+    if (this.type === 'crawler' && s === 'lungeWind') return this.tele(0.45);
+    if (this.type === 'dummy' && s === 'windup') return this.tele(0.6);
     return 0;
   }
   glintPoint() {
     const f = this.facing;
     if (this.type === 'scrapper') return [this.x - f * 1, this.y - 27];
     if (this.type === 'brute') return [this.x - f * 6, this.y - 23];
+    if (this.type === 'shielder') return [this.x + f * 9, this.y - 15];
+    if (this.type === 'crawler') return [this.x + f * 13, this.y - 5];
+    if (this.type === 'dummy') return [this.x + f * 10, this.y - 24];
     return [this.x + f * 3, this.y - 6];
   }
   checkGlint() {
@@ -50,7 +67,7 @@ class Enemy {
     FX.glint(gx, gy, { c: '#ffe8a0', size: this.heavy ? 1.1 : 0.8, follow: () => this.glintPoint() });
     Sound.play('glint');
   }
-  windingUp() { return this.state === 'windup' || this.state === 'aim' || this.state === 'tele' || this.state === 'punchWind' || this.state === 'slamWind'; }
+  windingUp() { return WINDUP_STATES.has(this.state); }
   stagger(dur, kx = 0) {
     if (this.heavy && dur < 1) dur *= 0.5;
     this.stun = Math.max(this.stun, dur);
@@ -83,7 +100,7 @@ class Enemy {
     }
     this[this.type](dt);
     this.checkGlint();
-    this.physics(dt, false);
+    if (!this.skipPhysics) this.physics(dt, false);
   }
   physics(dt, stunned) {
     if (this.flying && !stunned) {
@@ -92,7 +109,7 @@ class Enemy {
       if (this.y > floor) { this.y = floor; this.vy = Math.min(this.vy, 0); }
       if (this.y < -30) this.vy = Math.max(this.vy, 40);
     } else {
-      this.vy = Math.min(this.vy + 900 * dt * (this.flying ? 0.6 : 1), 520);
+      this.vy = Math.min(this.vy + 900 * dt * (this.flying ? 0.6 : 1) * Game.gravMul(), 520);
       if (this.onGround && stunned) this.vx = approach(this.vx, 0, 700 * dt);
       else if (!this.onGround && stunned) this.vx = approach(this.vx, 0, 120 * dt);
       Level.moveBody(this, dt, { oneWay: true, step: stunned ? 0 : 11 });
@@ -133,13 +150,17 @@ class Enemy {
   scrapper(dt) {
     const p = Game.player, dx = p.x - this.x, dy = p.y - this.y;
     switch (this.state) {
-      case 'chase':
-        this.groundChase(dt, this.scaleSpeed(), 18);
-        if (Math.abs(dx) < 30 && Math.abs(dy) < 24 && this.cd <= 0 && !p.dead && this.onGround) {
+      case 'chase': {
+        // without a free attack token it hangs back just out of reach
+        const token = meleeTokensFree(this);
+        this.groundChase(dt, this.scaleSpeed() * (token ? 1 : 0.6), token ? 18 : 46);
+        if (!token && Math.abs(dx) < 40 && this.onGround) this.vx = approach(this.vx, -sign(dx) * 40, 600 * dt);
+        if (token && Math.abs(dx) < 30 && Math.abs(dy) < 24 && this.cd <= 0 && !p.dead && this.onGround) {
           this.setState('windup'); this.facing = sign(dx) || this.facing;
           Sound.play('enemyWindup');
         }
         break;
+      }
       case 'windup':
         this.vx = approach(this.vx, 0, 900 * dt);
         if (this.st >= this.tele(0.45)) { this.setState('strike'); this.vx = this.facing * 190; this.struck = false; Sound.play('enemyMelee'); }
@@ -164,11 +185,22 @@ class Enemy {
         let want = 0;
         if (adx < 100) want = -this.facing; else if (adx > 185) want = this.facing;
         const spd = this.scaleSpeed();
+        if (this.seekX !== undefined) {
+          // walking to a spot with a clear shot
+          const d = this.seekX - this.x;
+          want = Math.abs(d) > 6 ? sign(d) : 0;
+          if (!want || this.st > 2.5) this.seekX = undefined;
+        }
         this.vx = approach(this.vx, want * spd, 600 * dt);
         if (this.onGround && this.col && (this.col.wallL || this.col.wallR) && this.jumpCD <= 0 && want) { this.vy = -320; this.jumpCD = 1; }
         if (Math.abs(this.vx) > 10 && this.onGround) this.walk += Math.abs(this.vx) * dt * 0.13;
-        if (this.cd <= 0 && adx < 280 && !p.dead && this.onGround && Level.raycast(mx, my, p.x, p.cy) >= 1) {
-          this.setState('aim'); this.aim = toP; Sound.play('enemyWindup', { pm: 0.7 });
+        const clear = Level.raycast(mx, my, p.x, p.cy) >= 1;
+        if (this.cd <= 0 && adx < 280 && !p.dead && this.onGround && clear) {
+          this.setState('aim'); this.aim = toP; this.blockedT = 0; this.seekX = undefined; Sound.play('enemyWindup', { pm: 0.7 });
+        } else if (this.cd <= 0 && adx < 280 && !p.dead && !clear) {
+          // blocked by cover or a ledge: find a spot with a clear shot, or hop up for one
+          this.blockedT = (this.blockedT || 0) + dt;
+          if (this.blockedT > 1.5 && this.seekX === undefined) { this.blockedT = 0; this.findFiringSpot(p); }
         }
         break;
       }
@@ -192,6 +224,22 @@ class Enemy {
         break;
     }
   }
+  // Flank: look for a spot near the player (own side first, then across the cover) with a clear shot.
+  findFiringSpot(p) {
+    const side = sign(this.x - p.x) || 1;
+    let best = null;
+    for (const s of [side, -side]) {
+      for (const d of [120, 160, 200, 240]) {
+        const x = clamp(p.x + s * d, 60, Level.W - 60), gy = Level.groundBelow(x, Level.GROUND - 30);
+        if (Level.raycast(x, gy - 13, p.x, p.cy) < 1) continue;
+        if (!best || Math.abs(x - this.x) < Math.abs(best - this.x)) best = x;
+      }
+      if (best !== null) break;
+    }
+    if (best !== null) { this.seekX = best; this.st = 0; return; }
+    // nowhere better on this level: hop up for a look
+    if (this.onGround) { this.vy = -330; this.onGround = false; this.vx = sign(p.x - this.x) * 60; }
+  }
   drone(dt) {
     const p = Game.player;
     switch (this.state) {
@@ -203,7 +251,7 @@ class Enemy {
         this.vx = approach(this.vx, (dx / d) * s, 400 * dt);
         this.vy = approach(this.vy, (dy / d) * s, 400 * dt);
         this.facing = sign(p.x - this.x) || this.facing;
-        if (this.cd <= 0 && dist(this.x, this.y, p.x, p.y) < 200 && !p.dead) { this.setState('tele'); Sound.play('enemyWindup', { pm: 1.3 }); }
+        if (this.cd <= 0 && dist(this.x, this.y, p.x, p.y) < 200 && !p.dead && meleeTokensFree(this)) { this.setState('tele'); Sound.play('enemyWindup', { pm: 1.3 }); }
         break;
       }
       case 'tele':
@@ -238,7 +286,7 @@ class Enemy {
       case 'walk':
         this.groundChase(dt, this.scaleSpeed(), 24);
         if (this.cd <= 0 && !p.dead && this.onGround) {
-          if (adx < 36 && Math.abs(dy) < 34) { this.setState('punchWind'); this.facing = sign(dx) || this.facing; Sound.play('enemyWindup', { pm: 0.5 }); }
+          if (adx < 36 && Math.abs(dy) < 34 && meleeTokensFree(this)) { this.setState('punchWind'); this.facing = sign(dx) || this.facing; Sound.play('enemyWindup', { pm: 0.5 }); }
           else if (adx < 170 && Math.abs(dy) < 50 && chance(0.02)) { this.setState('slamWind'); Sound.play('enemyWindup', { pm: 0.4 }); }
         }
         break;
@@ -280,13 +328,11 @@ class Enemy {
     const g = Sprite.begin(this.facing);
     this.render(g);
     const flash = this.hitFlash > 0 ? '#ffffff' : this.cutMark ? (((this.t * 30) | 0) % 2 ? '#ff3048' : null) : null;
-    Sprite.end(ctx, this.x - camX, this.y - camY, { flash });
+    Sprite.end(ctx, this.x - camX, this.y - camY, { flash, outline: this.elite ? '#ffd070' : undefined });
   }
   render(g) {
-    if (this.type === 'scrapper') this.renderScrapper(g);
-    else if (this.type === 'gunner') this.renderGunner(g);
-    else if (this.type === 'drone') this.renderDrone(g);
-    else this.renderBrute(g);
+    const fn = this['render' + this.type[0].toUpperCase() + this.type.slice(1)];
+    (fn || this.renderBrute).call(this, g);
   }
   legs(g, hipY, stride, col, colB, l1, l2, w = 2) {
     const ph = this.walk;
@@ -414,7 +460,9 @@ class Enemy {
       return;
     }
     if (this.dead) return;
-    if (this.windingUp() && this.type !== 'gunner') {
+    if (this.drawSpecial) this.drawSpecial(ctx, x, y);
+    const marks = !Game.mod('glints');
+    if (marks && this.windingUp() && this.type !== 'gunner' && this.type !== 'sniper') {
       if (((this.st * 14) | 0) % 2 === 0) drawText(ctx, this.heavy ? '!!' : '!', x, y - this.h - 11, { color: '#ffd040', align: 'center' });
     }
     if (this.type === 'gunner' && this.state === 'aim') {
@@ -428,7 +476,7 @@ class Enemy {
         if (!locked && i % 2) continue;
         ctx.fillRect(Math.round(mx + Math.cos(this.aim) * i * 3), Math.round(my + Math.sin(this.aim) * i * 3), 1, 1);
       }
-      if (((this.st * 14) | 0) % 2 === 0) drawText(ctx, '!', x, y - this.h - 11, { color: locked ? '#ffffff' : '#ffd040', align: 'center' });
+      if (marks && ((this.st * 14) | 0) % 2 === 0) drawText(ctx, '!', x, y - this.h - 11, { color: locked ? '#ffffff' : '#ffd040', align: 'center' });
     }
     if (this.hp < this.maxHp) {
       const bw = Math.max(12, this.w + 4), bx = Math.round(x - bw / 2), by = Math.round(y - this.h - 5);
@@ -439,21 +487,22 @@ class Enemy {
   }
   addLights() {
     if (this.spawning) { FX.frameLight(this.x, this.y - 10, 40, '#ff7a3a', 0.8); return; }
-    const c = this.type === 'scrapper' ? '#c8ff3a' : this.type === 'gunner' ? '#ffaa30' : this.type === 'drone' ? (this.state === 'tele' ? '#ff3030' : '#ffd040') : '#ff7a2a';
+    const c = this.type === 'drone' ? (this.state === 'tele' ? '#ff3030' : '#ffd040') : ENEMY_LIGHT[this.type] || '#ff7a2a';
     FX.frameLight(this.x + this.facing * 4, this.y - this.h + 3, this.heavy ? 34 : 16, c, 0.7);
     if (this.windingUp()) FX.frameLight(this.x, this.cy, 30, '#ffd040', 0.6);
+    if (this.elite) FX.frameLight(this.x, this.cy, 30, '#ffd070', 0.5);
   }
 }
 
 function hurtEnemy(e, dmg, o = {}) {
   if (e.dead || e.spawning || e.dying) return 0;
-  if (e.shielded && e.shielded()) { e.shieldHit(o); return 0; }
+  if (e.shielded && e.shielded(o)) { e.shieldHit(o); return 0; }
   if (e.intercept && e.intercept(o)) return 0;
   if (e.dodging && e.dodging()) {
     if (!e._missT || Game.time > e._missT) { e._missT = Game.time + 0.4; FX.text('DODGE', e.x, e.y - e.h - 8, { c: '#7af0ff', always: true, dur: 0.5, vy: -20 }); }
     return 0;
   }
-  let d = dmg * (e.damageTakenMul ? e.damageTakenMul() : 1);
+  let d = dmg * (e.damageTakenMul ? e.damageTakenMul() : 1) * (Game.has('glass') ? 1.35 : 1);
   if (e.tethered) d *= 1.25;
   d = Math.max(1, Math.round(d));
   if (e.gateDamage) d = e.gateDamage(d);
@@ -479,19 +528,20 @@ function hurtEnemy(e, dmg, o = {}) {
   Sound.play('hit', { heavy: o.heavy || d >= 30 });
   if (o.hitstop) Game.hitstop(o.hitstop);
   if (o.shake) Game.shake(o.shake);
-  Game.registerHit(d);
+  Game.registerHit(d, o.cause);
   if (e.hp <= 0) killEnemy(e, o);
   return d;
 }
 
 function killEnemy(e, o) {
   if (e.onDeath) { e.onDeath(o); return; }
+  if (e.type === 'dummy') { e.onDeathDummy(); return; }
   e.dead = true; e.tethered = false; e.hp = 0;
   const g = Sprite.begin(e.facing);
   e.render(g);
   const img = Sprite.snapshot();
   const cx = e.x, cy = e.cy;
-  const cut = ['slash', 'iaido', 'saw', 'tether', 'plunge', 'chain'].includes(o.cause);
+  const cut = ['slash', 'iaido', 'saw', 'tether', 'plunge', 'chain', 'groundcut'].includes(o.cause);
   const ang = o.angle !== undefined ? o.angle : rand(0, TAU);
   const base = ((o.kx || 0) * 0.35) / e.mass;
   const nx = Math.cos(ang + Math.PI / 2), ny = Math.sin(ang + Math.PI / 2);

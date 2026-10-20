@@ -7,10 +7,19 @@ const PC = {
   GRAV: 960, MAX_FALL: 430, JUMP: 300, DJUMP: 282, JUMP_CUT: 0.45, COYOTE: 0.09, JUMP_BUF: 0.13,
   WALL_SLIDE: 70, WALL_JUMP_X: 180, WALL_JUMP_Y: 290,
   CROUCH_SPEED: 55, SLIDE_MIN: 100, SLIDE_BOOST: 255, SLIDE_FRICTION: 230, BULLET: 375,
-  DASH_SPEED: 480, DASH_TIME: 0.14, DASH_IFRAMES: 0.3, DASH_RECHARGE: 1.0, DASH_CHARGES: 2,
+  DASH_SPEED: 480, DASH_TIME: 0.14, DASH_IFRAMES: 0.2, DASH_RECHARGE: 1.0, DASH_CHARGES: 2,
   TETHER_RANGE: 230, TETHER_COST: 15, TETHER_SPEED: 1150, ZIP_SPEED: 480,
   MAX_HP: 100, MAX_SHIELD: 100, SHIELD_DELAY: 3.0, SHIELD_RATE: 38,
-  PARRY_COST: 15, PARRY_CD: 0.8, PARRY_CD_HIT: 0.25, STANCE_MAX: 0.9, DROP_HOLD: 0.16, DASH_ATTACK_WINDOW: 0.14,
+  PARRY_COST: 15, PARRY_CD: 0.4, PARRY_CD_HIT: 0.25, STANCE_MAX: 0.9, DROP_HOLD: 0.16, DASH_ATTACK_WINDOW: 0.14,
+  // presses made while an action is busy are remembered this long
+  INPUT_BUF: 0.12,
+  // a dash that cancels an attack waits this long, so swinging isn't free
+  CANCEL_RECOVERY: 0.1,
+  // re-pressing parry within this time shrinks the window (to 50% at most)
+  PARRY_SPAM_DECAY: 0.6,
+  DROP_TAP: 0.28,
+  // below this much shield, a hit that breaks it carries its leftover damage
+  SHIELD_OVERFLOW_AT: 25,
 };
 
 const SWINGS = {
@@ -39,7 +48,8 @@ class Player {
     this.dashCharges = PC.DASH_CHARGES; this.dashRecharge = 0; this.dashT = 0; this.dashVX = 0; this.dashVY = 0;
     this.iframes = 0; this.hurtT = 0;
     this.coyote = 0; this.jumpBuf = 0; this.airJumps = 1; this.jumpCuttable = false;
-    this.crouching = false; this.sliding = false; this.slideT = 0; this.dropHoldT = 0; this.dropT = 0;
+    this.crouching = false; this.sliding = false; this.slideT = 0; this.dropHoldT = 0; this.dropT = 0; this.crouchTapT = -1;
+    this.dashBuf = 0; this.dashHold = 0; this.parryBuf = 0; this.parrySpam = 0; this.shieldWasFull = true; this.shieldFullFlash = 0;
     this.wallDir = 0; this.wallSliding = false; this.wallJumpLock = 0;
     this.spinT = 0; this.spinDur = 0; this.bulletT = 0;
     this.attack = null; this.comboStage = 0; this.comboTimer = 0; this.attackQueued = false; this.attackCD = 0;
@@ -78,18 +88,23 @@ class Player {
     this.aimAngle = Math.atan2(m.y - cy, m.x - cx);
 
     const dec = (k) => { if (this[k] > 0) this[k] = Math.max(0, this[k] - dt); };
-    for (const k of ['iframes', 'hurtT', 'coyote', 'jumpBuf', 'attackCD', 'landLag', 'postPose', 'parryCD', 'parryFlash', 'dashEndT', 'shieldOffT', 'dropT', 'wallJumpLock', 'landSquash', 'shieldFlash', 'spinT', 'bulletT', 'blinkT']) dec(k);
+    for (const k of ['iframes', 'hurtT', 'coyote', 'jumpBuf', 'attackCD', 'landLag', 'postPose', 'parryCD', 'parryFlash', 'dashEndT', 'shieldOffT', 'dropT', 'wallJumpLock', 'landSquash', 'shieldFlash', 'spinT', 'bulletT', 'blinkT', 'parryBuf', 'dashHold', 'shieldFullFlash']) dec(k);
+    this.parrySpam = Math.max(0, this.parrySpam - dt / PC.PARRY_SPAM_DECAY);
     if (this.onGround) this.hoverAvail = true;
     if (this.dropT <= 0) this.dropThrough = false;
     if (this.dashCharges < PC.DASH_CHARGES) {
       this.dashRecharge += dt;
-      if (this.dashRecharge >= PC.DASH_RECHARGE) { this.dashCharges++; this.dashRecharge = 0; }
+      if (this.dashRecharge >= PC.DASH_RECHARGE + (Game.has('emberWake') ? 0.25 : 0)) { this.dashCharges++; this.dashRecharge = 0; }
     }
     this.shieldDelay -= dt;
     if (this.shieldDelay <= 0 && this.shieldOffT <= 0 && this.shield < PC.MAX_SHIELD && !this.dead) {
-      if (!this.regenOn) { this.regenOn = true; Sound.play('shieldRegen'); }
+      if (!this.regenOn) { this.regenOn = true; Sound.play('shieldRegen'); FX.ring(this.x, this.cy, 14, 6, 0.25, { c: '#2a8ad0', core: '#a0e8ff', w: 1 }); }
       this.shield = Math.min(PC.MAX_SHIELD, this.shield + PC.SHIELD_RATE * dt);
+      if (this.shield >= PC.MAX_SHIELD) this.onShieldFull();
     } else if (this.shieldDelay > 0) this.regenOn = false;
+    if (this.shield < PC.MAX_SHIELD - 0.5) this.shieldWasFull = false;
+    // training: health comes back once you've gone a few seconds without being hit
+    if (Game.mode === 'training' && this.shieldDelay < -1 && this.hp < PC.MAX_HP) this.hp = Math.min(PC.MAX_HP, this.hp + 40 * dt);
     if (this.ultCharge >= 1 && !this.ultReadyPlayed) {
       this.ultReadyPlayed = true; Sound.play('ultReady');
       Game.announce('ULTIMATE READY', 'HOLD ' + hudKey('ultimate'), '#ff3a52', 1.4, true);
@@ -104,7 +119,8 @@ class Player {
 
     this.updateUltHold(dt);
     this.updateSheathe(dt);
-    if (Input.wasPressed('dash')) this.tryDash(mx, up, down);
+    if (Input.wasPressed('dash')) { this.dashBuf = PC.INPUT_BUF; if (this.attack && !this.dashHold) this.dashHold = PC.CANCEL_RECOVERY; }
+    this.updateDashBuffer(dt, mx, up, down);
     this.updateTetherInput();
     this.updateTether(dt);
     if (Input.wasPressed('attack')) this.onAttackPressed(down);
@@ -156,15 +172,23 @@ class Player {
     if (this.onGround) {
       this.airJumps = 1;
       if (Input.wasPressed('crouch') && Math.abs(this.vx) > PC.SLIDE_MIN && !this.sliding && !this.attack && !this.sheathe) this.startSlide();
-      // holding down on a one-way platform drops through it
-      if (down && !this.sliding && S.controls.dropHold && Level.onOneWay(this)) {
-        this.dropHoldT += dt;
-        if (this.dropHoldT >= PC.DROP_HOLD) {
-          this.dropHoldT = 0;
-          this.dropT = 0.22; this.dropThrough = true; this.onGround = false; this.vy = 40;
-          this.crouching = false; this.setHeight(PC.H);
+      // double-tap crouch on a one-way platform to drop through it (or hold, if set that way)
+      const onOneWay = Level.onOneWay(this);
+      let drop = false;
+      if (S.controls.dropDoubleTap) {
+        if (Input.wasPressed('crouch') && onOneWay) {
+          if (this.crouchTapT >= 0 && Game.time - this.crouchTapT < PC.DROP_TAP) { drop = true; this.crouchTapT = -1; }
+          else this.crouchTapT = Game.time;
         }
+      } else if (down && !this.sliding && onOneWay) {
+        this.dropHoldT += dt;
+        if (this.dropHoldT >= PC.DROP_HOLD) { this.dropHoldT = 0; drop = true; }
       } else this.dropHoldT = 0;
+      if (drop) {
+        this.sliding = false;
+        this.dropT = 0.22; this.dropThrough = true; this.onGround = false; this.vy = 40;
+        this.crouching = false; this.setHeight(PC.H);
+      }
     }
     if (this.sliding) {
       this.slideT -= dt;
@@ -209,7 +233,7 @@ class Player {
     this.wallSliding = this.wallDir !== 0 && mx === this.wallDir && this.vy > 0 && !this.attack;
 
     // gravity
-    let grav = PC.GRAV;
+    let grav = PC.GRAV * Game.gravMul();
     if (this.vy > 0 && !up) grav *= 1.12;
     if (this.attack && !this.onGround && this.vy > 0) grav *= 0.45;
     if (this.sheathe && !this.onGround && this.sheathe.hover > 0) {
@@ -289,6 +313,18 @@ class Player {
   }
 
   // ---------- dash ----------
+  // The third combo hit and the ground cut can't be cancelled while their blade is out.
+  committed() {
+    const a = this.attack;
+    return !!a && (a.stage === 3 || a.groundCut) && a.t <= a.act1;
+  }
+  updateDashBuffer(dt, mx, up, down) {
+    if (this.dashBuf <= 0) return;
+    const waiting = this.committed() || this.dashHold > 0;
+    if (!waiting && this.dashCharges > 0 && this.dashT <= 0 && !this.iaido) { this.dashBuf = 0; this.dashHold = 0; this.tryDash(mx, up, down); return; }
+    // a dash held back by an attack stays queued until the attack allows it
+    if (!waiting) this.dashBuf -= dt;
+  }
   tryDash(mx, up, down) {
     if (this.dashCharges <= 0 || this.dashT > 0 || this.iaido) return;
     let dx = mx, dy = (down ? 1 : 0) - (up ? 1 : 0);
@@ -300,7 +336,7 @@ class Player {
     this.attack = null; this.attackQueued = false; this.plunge = null; this.postPose = 0; this.landLag = 0;
     if (this.sliding || this.crouching) { this.sliding = false; this.crouching = false; if (!this.setHeight(PC.H)) this.setHeight(PC.SLIDE_H); }
     const spd = this.ult ? PC.DASH_SPEED * 1.25 : PC.DASH_SPEED;
-    this.dashT = PC.DASH_TIME; this.dashVX = dx * spd; this.dashVY = dy * spd * 0.85;
+    this.dashT = PC.DASH_TIME; this.dashVX = dx * spd; this.dashVY = dy * spd * 0.85; this.dashHits = new Set();
     this.iframes = Math.max(this.iframes, PC.DASH_IFRAMES);
     if (this.dashCharges === PC.DASH_CHARGES) this.dashRecharge = 0;
     this.dashCharges--;
@@ -315,6 +351,17 @@ class Player {
   moveDash(dt) {
     this.dashT -= dt;
     this.vx = this.dashVX; this.vy = this.dashVY;
+    if (Game.has('emberWake')) {
+      for (const e of Game.enemies) {
+        if (e.dead || e.spawning || this.dashHits.has(e)) continue;
+        if (aabb(this.x - this.w / 2 - 4, this.y - this.h, this.w + 8, this.h, e.x - e.w / 2, e.y - e.h, e.w, e.h)) {
+          this.dashHits.add(e);
+          hurtEnemy(e, 20, { kx: sign(this.dashVX || this.facing) * 80, ky: -60, cause: 'dash', angle: Math.atan2(this.dashVY, this.dashVX), stagger: 0.3, hitstop: 0.02 });
+          FX.sparks(e.x, e.cy, 8, Math.atan2(this.dashVY, this.dashVX), 1, 60, 200, { c0: '#ffffff', c1: '#ffb040', c2: '#ff3048' });
+        }
+      }
+      if (Math.random() < 0.7) FX.embers(this.x, this.y - 4, 1);
+    }
     if (this.dashT <= 0) {
       this.dashT = 0;
       this.dashEndT = PC.DASH_ATTACK_WINDOW;
@@ -382,7 +429,7 @@ class Player {
         if (e.dead || e.spawning || a.hit.has(e)) continue;
         if (aabb(f > 0 ? this.x : this.x - 28, this.y - 12, 28, 12, e.x - e.w / 2, e.y - e.h, e.w, e.h)) {
           a.hit.add(e);
-          hurtEnemy(e, 12, { kx: f * 160, ky: -170, cause: 'slash', angle: f > 0 ? -0.3 : Math.PI + 0.3, stagger: 0.4, hitstop: 0.03 });
+          hurtEnemy(e, 12, { kx: f * 160, ky: -170, cause: 'groundcut', angle: f > 0 ? -0.3 : Math.PI + 0.3, stagger: 0.4, hitstop: 0.03 });
         }
       }
     }
@@ -426,8 +473,9 @@ class Player {
           a.hit.add(e);
           any = true;
           const heavy = a.stage === 3;
-          hurtEnemy(e, a.dmg, {
-            kx: Math.cos(a.ang) * a.knock, ky: Math.sin(a.ang) * a.knock * 0.5 - (heavy ? 140 : 50),
+          const brk = Game.has('breaker');
+          hurtEnemy(e, a.dmg * (brk ? (heavy ? 1.6 : 0.8) : 1), {
+            kx: Math.cos(a.ang) * a.knock, ky: Math.sin(a.ang) * a.knock * 0.5 - (heavy ? (brk ? 300 : 140) : 50),
             heavy, cause: 'slash', angle: a.ang + a.dir * 0.6, stagger: heavy ? 0.55 : 0.22, hitstop: a.hitstop, shake: a.shake,
           });
         }
@@ -481,7 +529,7 @@ class Player {
       if (e.dead || e.spawning || P.hit.has(e)) continue;
       if (aabb(this.x - 5, this.y - this.h, 10, this.h + 12, e.x - e.w / 2, e.y - e.h, e.w, e.h)) {
         P.hit.add(e);
-        hurtEnemy(e, 16, { kx: sign(e.x - this.x) * 60, ky: 200, cause: 'slash', angle: Math.PI / 2, stagger: 0.4, hitstop: 0.02 });
+        hurtEnemy(e, 16, { kx: sign(e.x - this.x) * 60, ky: 200, cause: 'plunge', angle: Math.PI / 2, stagger: 0.4, hitstop: 0.02 });
       }
     }
     if (Math.random() < 0.8) FX.sparks(this.x, this.y + 6, 1, -Math.PI / 2, 0.5, 60, 140, { g: -200, life: 0.6 });
@@ -491,7 +539,8 @@ class Player {
     this.plunge = null;
     const fall = Math.max(0, this.y - P.startY);
     const power = clamp(fall / 220, 0.15, 1);
-    const R = 46 + power * 62, dmg = 22 + power * 42;
+    const R = 46 + power * 62, dmg = (22 + power * 42) * (Game.has('aftershock') ? 0.8 : 1);
+    if (Game.has('aftershock')) for (const d of [-1, 1]) Game.hazards.push(new FriendlyWave(this.x + d * 10, this.y, d, 280, 18 + power * 22));
     for (const e of Game.enemies) {
       if (e.dead || e.spawning) continue;
       const dx = e.x - this.x, dy = e.y - this.y;
@@ -526,7 +575,14 @@ class Player {
   // ---------- parry stance / iaido ----------
   // E opens a parry stance that costs shield. It only attacks after a successful parry.
   updateSheathe(dt) {
-    if (Input.wasPressed('sheathe') && !this.sheathe && !this.iaido && this.dashT <= 0 && !this.plunge && this.ultHold <= 0) this.tryStance();
+    if (Input.wasPressed('sheathe')) {
+      if (this.parryCD > PC.INPUT_BUF && !this.sheathe) { Sound.play('denied'); this.parryFlash = 0.35; }
+      else this.parryBuf = PC.INPUT_BUF;
+    }
+    if (this.parryBuf > 0 && !this.sheathe && !this.iaido && this.dashT <= 0 && !this.plunge && this.ultHold <= 0 && this.parryCD <= 0) {
+      this.parryBuf = 0;
+      this.tryStance();
+    }
     const s = this.sheathe;
     if (!s) return;
     s.t += dt;
@@ -550,7 +606,10 @@ class Player {
     this.shieldDelay = Math.max(this.shieldDelay, 1.4); this.regenOn = false;
     this.attack = null; this.attackQueued = false;
     if (this.sliding) { this.sliding = false; if (!this.setHeight(PC.H)) { this.crouching = true; this.setHeight(PC.CROUCH_H); } }
-    this.sheathe = { t: 0, charge: 0, empowered: false, parryUntil: S.gameplay.parryWindow, hover: this.hoverAvail ? 1.0 : 0, parried: 0, parriedAt: 0, refunded: false, releaseQueued: false };
+    // pressing again right after a stance shrinks the window, so mashing is worse than timing
+    const win = S.gameplay.parryWindow * (Game.has('openGuard') ? 1.6 : 1) * (1 - 0.25 * Math.min(2, Math.ceil(this.parrySpam - 0.01)));
+    this.parrySpam = Math.min(3, this.parrySpam + 1);
+    this.sheathe = { t: 0, charge: 0, empowered: false, parryUntil: win, hover: this.hoverAvail ? 1.0 : 0, parried: 0, parriedAt: 0, refunded: false, releaseQueued: false };
     if (!this.onGround) this.hoverAvail = false;
     Sound.play('sheathe');
     const [cx, cy] = this.chest();
@@ -569,18 +628,21 @@ class Player {
     this.stopLoop('charge');
     this.sheathe = null;
     if (s.empowered) { this.parryCD = PC.PARRY_CD_HIT; this.startIaido(IAIDO.counter); }
-    else { this.parryCD = PC.PARRY_CD; Sound.play('unsheathe'); }
+    else { this.parryCD = s.parried ? PC.PARRY_CD_HIT : PC.PARRY_CD; Sound.play('unsheathe'); }
   }
   doParry(h) {
     const s = this.sheathe;
     s.parried++;
-    if (!s.empowered) {
+    this.parrySpam = 0;
+    // some foes meet a parry blade to blade: no counter, they guard instead
+    const clash = !!(h.source && h.source.clashes && h.source.clashes(h));
+    if (!s.empowered && !clash) {
       s.empowered = true; s.parriedAt = s.t; s.charge = 1;
       this.loops.charge = Sound.loop('charge');
       this.loops.charge.set(1);
     }
     s.parryUntil = s.t + 0.32;
-    if (!s.refunded && this.shieldOffT <= 0) {
+    if (!s.refunded && this.shieldOffT <= 0 && !Game.has('openGuard')) {
       s.refunded = true;
       this.shield = Math.min(PC.MAX_SHIELD, this.shield + PC.PARRY_COST);
       FX.text('+' + PC.PARRY_COST + ' SHIELD', this.x, this.y - 40, { c: '#5ad8ff', always: true, dur: 0.8, vy: -18 });
@@ -596,7 +658,7 @@ class Player {
     FX.sparks(cx + Math.cos(ang) * 8, cy + Math.sin(ang) * 8, 22, ang, 1.6, 80, 300, { c0: '#ffffff', c1: '#ffe080', c2: '#ff5a3a' });
     FX.elec(cx, cy, 22, 6, { outer: '#ffb040', core: '#ffffff' });
     FX.light(cx, cy, 90, '#ffe0a0', 1, 0.4);
-    FX.text('PARRY', this.x, this.y - 32, { c: '#ffe8a0', always: true, dur: 0.9, vy: -26 });
+    FX.text(clash ? 'CLASH' : 'PARRY', this.x, this.y - 32, { c: clash ? '#7af0ff' : '#ffe8a0', always: true, dur: 0.9, vy: -26 });
     if (h.proj) h.proj.reflect(this.aimAngle, 1.9, 40);
     else if (h.source && h.source.stagger) h.source.stagger(1.3, sign(h.source.x - this.x) * 220);
     this.iframes = Math.max(this.iframes, 0.2);
@@ -680,7 +742,7 @@ class Player {
   }
   resolveIaido(I) {
     const cfg = I.cfg;
-    let n = 0;
+    let n = 0, kills = 0;
     for (const e of I.hit) {
       if (e.dead) continue;
       e.cutMark = 0;
@@ -690,8 +752,10 @@ class Player {
         FX.slashLine(cx - Math.cos(a) * L, cy - Math.sin(a) * L, cx + Math.cos(a) * L, cy + Math.sin(a) * L, { w: 3, dur: 0.25, grow: 0.03, pal: cfg.empowered ? PALETTES.gold : PALETTES.red });
       }
       hurtEnemy(e, cfg.dmg, { kx: Math.cos(I.ang) * 280, ky: -180, heavy: true, cause: 'iaido', angle: a, stagger: cfg.empowered ? 0.9 : 0.45, hitstop: 0, shake: 0, crit: cfg.empowered });
+      if (cfg.empowered && (e.dead || e.dying)) kills++;
       n++;
     }
+    if (kills) this.counterHeal(kills);
     if (n && cfg.delayed) {
       Sound.play('cut');
       Game.shake(0.25 + n * 0.05);
@@ -699,16 +763,25 @@ class Player {
       FX.flash(cfg.empowered ? '#fff6e0' : '#ffffff', 0.2);
     } else if (n) Game.hitstop(0.04);
   }
+  // kills from a parry counter (and its chain lightning) patch you up a little
+  counterHeal(kills) {
+    if (this.dead) return;
+    const n = Math.min(12, kills * 4);
+    this.heal(n);
+    FX.text('+' + n + ' HP', this.x, this.y - 44, { c: '#7dff8a', always: true, dur: 0.8, vy: -20 });
+  }
   chainLightning(cx, cy, I) {
-    const targets = Game.enemies.filter((e) => !e.dead && !e.spawning && !I.hit.has(e) && dist(e.x, e.y - e.h / 2, cx, cy) < 200)
-      .sort((a, b) => dist(a.x, a.y, cx, cy) - dist(b.x, b.y, cx, cy)).slice(0, 5);
+    const arc = Game.has('arc'), range = arc ? 300 : 200, chainDmg = arc ? 40 : 55;
+    const targets = Game.enemies.filter((e) => !e.dead && !e.spawning && !I.hit.has(e) && dist(e.x, e.y - e.h / 2, cx, cy) < range)
+      .sort((a, b) => dist(a.x, a.y, cx, cy) - dist(b.x, b.y, cx, cy)).slice(0, arc ? 8 : 5);
     let px = cx, py = cy;
     targets.forEach((e, i) => {
       const ex = e.x, ey = e.y - e.h / 2;
       FX.bolt(px, py, ex, ey, 0.25, { outer: '#ffb040', core: '#ffffff', jag: 6, w: 1 });
       Game.queueCut(0.12 + i * 0.06, () => {
         if (e.dead) return;
-        hurtEnemy(e, 55, { kx: sign(ex - cx) * 150, ky: -120, cause: 'chain', stagger: 1.2, hitstop: 0.01, angle: rand(0, TAU) });
+        hurtEnemy(e, chainDmg, { kx: sign(ex - cx) * 150, ky: -120, cause: 'chain', stagger: 1.2, hitstop: 0.01, angle: rand(0, TAU) });
+        if (e.dead || e.dying) this.counterHeal(1);
         FX.elec(ex, ey, 14, 5, { outer: '#ffb040', core: '#ffffff' });
       });
       px = ex; py = ey;
@@ -728,7 +801,9 @@ class Player {
     this.fireTether();
   }
   fireTether() {
-    const free = !!this.ult;
+    // the rival's grenade is the fight's key, so tethering one is always free
+    const grenade = this.grenadeNearAim(!!this.ult);
+    const free = !!this.ult || !!grenade;
     if (!free && !S.gameplay.invincible && this.shield < PC.TETHER_COST) {
       Sound.play('noShield');
       this.shieldFlash = 0.5;
@@ -742,7 +817,7 @@ class Player {
       phase: 'fly', x: hx, y: hy, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, dist: 0, max: free ? 4000 : PC.TETHER_RANGE,
       target: null, kind: null, ox: 0, oy: 0, mode: null, firedAt: Game.time, t: 0, spd: 0,
       // a grenade near the cursor pulls the line onto it, since it moves while the line travels
-      homing: this.grenadeNearAim(free),
+      homing: grenade, paid: !free,
     };
     this.facing = Math.cos(a) >= 0 ? 1 : -1;
     Sound.play('tetherFire');
@@ -906,7 +981,21 @@ class Player {
         Sound.play('sawHit');
         return;
       }
-      hurtEnemy(e, 22, { kx: this.facing * 160, ky: -120, cause: 'tether', angle: this.aimAngle, stagger: 0.7, hitstop: 0.05, shake: 0.15, heavy: true });
+      const dealt = hurtEnemy(e, 22, { kx: this.facing * 160, ky: -120, cause: 'tether', angle: this.aimAngle, stagger: 0.7, hitstop: 0.05, shake: 0.15, heavy: true });
+      // a tether strike that connects pays for itself
+      if (Game.has('voltHook')) {
+        for (const o of Game.enemies) {
+          if (o === e || o.dead || o.spawning || dist(o.x, o.cy, e.x, e.cy) > 40) continue;
+          hurtEnemy(o, 30, { kx: sign(o.x - e.x) * 200, ky: -150, cause: 'tether', angle: Math.atan2(o.cy - e.cy, o.x - e.x), stagger: 0.6 });
+        }
+        if (!e.dead) hurtEnemy(e, 30, { cause: 'tether', noKnock: true, angle: -Math.PI / 2 });
+        FX.ring(e.x, e.cy, 3, 40, 0.3, { c: '#ff3048', core: '#ffd0d8', w: 2 });
+        FX.elec(e.x, e.cy, 30, 8);
+        Sound.play('pulse');
+      } else if (dealt > 0 && T.paid && this.shieldOffT <= 0) {
+        this.shield = Math.min(PC.MAX_SHIELD, this.shield + PC.TETHER_COST);
+        FX.text('+' + PC.TETHER_COST + ' SHIELD', this.x, this.y - 36, { c: '#5ad8ff', always: true, dur: 0.7, vy: -18 });
+      }
       FX.swoosh({ x: this.x, y: this.cy, r: 30, span: 3.2, ang: Math.atan2(e.y - e.h / 2 - this.cy, e.x - this.x), dir: this.facing, sweep: 0.06, dur: 0.2, thick: 10 });
       Sound.play('swing', { stage: 1 });
       this.vy = -230; this.vx *= 0.25;
@@ -1023,24 +1112,27 @@ class Player {
     if (this.ult) return 'immune';
     if (this.parryActive()) { this.doParry(h); return 'parried'; }
     if (this.iframes > 0 || this.iaido) return 'ignored';
-    let dmg = h.dmg;
+    let dmg = h.dmg * (Game.has('glass') ? 1.25 : 1);
     if (S.gameplay.invincible) dmg = 0;
     if (this.sheathe) this.cancelSheathe();
     if (this.tether && this.zipping()) this.releaseTether();
     this.attack = null; this.attackQueued = false; this.plunge = null; this.postPose = 0;
-    const hadShield = this.shield > 0;
+    const hadShield = this.shield > 0, shield0 = this.shield;
     if (this.shield > 0) {
       const absorbed = Math.min(this.shield, dmg);
       this.shield -= absorbed; dmg -= absorbed;
       if (this.shield <= 0.01) {
-        this.shield = 0; dmg = 0;
+        // a healthy shield eats the whole hit when it breaks; a sliver doesn't
+        this.shield = 0;
+        if (shield0 >= PC.SHIELD_OVERFLOW_AT) dmg = 0;
         Sound.play('shieldBreak');
         FX.sparks(this.x, this.cy, 16, rand(0, TAU), TAU, 60, 200, { c0: '#ffffff', c1: '#5ad8ff', c2: '#1a6aa0' });
         FX.text('SHIELD BROKEN', this.x, this.y - 30, { c: '#5ad8ff', always: true, dur: 0.8 });
-        this.iframes = 0.9;
+        this.iframes = dmg > 0 ? 0.6 : 0.9;
       } else Sound.play('shieldHit');
       FX.ring(this.x, this.cy, 6, 16, 0.18, { c: '#2a8ad0', core: '#a0e8ff', w: 1 });
     }
+    if (Game.mode === 'training') dmg = Math.min(dmg, Math.max(0, this.hp - 1));
     if (dmg > 0) {
       this.hp -= dmg;
       Sound.play('hurt');
@@ -1048,11 +1140,11 @@ class Player {
       FX.sparks(this.x, this.cy, 8, rand(0, TAU), TAU, 60, 180);
       FX.flash('#ff1030', 0.25);
     }
-    this.shieldDelay = PC.SHIELD_DELAY; this.regenOn = false;
+    this.shieldDelay = PC.SHIELD_DELAY + (Game.has('bloodline') ? 1 : 0); this.regenOn = false;
     this.iframes = Math.max(this.iframes, hadShield && this.shield > 0 ? 0.35 : 0.6);
     this.hurtT = 0.22;
     this.blinkT = this.iframes;
-    Game.combo = 0; Game.comboT = 0;
+    Game.combo = 0; Game.comboT = 0; Game.styleHit();
     const dir = sign(this.x - (h.x !== undefined ? h.x : this.x - this.facing)) || -this.facing;
     this.vx = dir * (h.knock || 160); this.vy = Math.min(this.vy, -140);
     this.onGround = false;
@@ -1061,6 +1153,14 @@ class Player {
     Game.stats.damageTaken += h.dmg;
     if (this.hp <= 0) this.die();
     return 'hit';
+  }
+  onShieldFull() {
+    if (this.shieldWasFull) return;
+    this.shieldWasFull = true; this.regenOn = false;
+    this.shieldFullFlash = 0.45;
+    Sound.play('shieldFull');
+    FX.ring(this.x, this.cy, 6, 20, 0.3, { c: '#3ad0ff', core: '#e0f8ff', w: 1 });
+    FX.sparks(this.x, this.cy, 6, -Math.PI / 2, TAU, 30, 90, { c0: '#ffffff', c1: '#5ad8ff', c2: '#1a6aa0', g: -40 });
   }
   // A pulse hit knocks the shield out: it drops to zero and can't recharge for a while.
   disableShield(dur) {
@@ -1082,7 +1182,7 @@ class Player {
     FX.debris(this.x, this.cy, 14, ['#454d63', '#7a849c', '#262a38', '#ff2a48'], 180);
     FX.flash('#ff1030', 0.5);
     Sound.play('explode', { big: true });
-    Game.slowmo(0.3, 1.2);
+    Game.slowmo(0.3, 1.2, true);
     Game.shake(0.6);
     Game.onPlayerDeath();
   }
@@ -1388,6 +1488,7 @@ class Player {
     if (this.dead) return;
     const [cx, cy] = this.chest();
     FX.frameLight(cx, cy, 46, '#c8a0b8', 0.35);
+    if (Game.mod('blackout')) FX.frameLight(cx, cy, 80, '#c8a0b8', 0.5);
     if (this._visor) FX.frameLight(this._visor[0], this._visor[1], 14, '#ff2a48', 0.9);
     if (this.sheathe) FX.frameLight(this.x - this.facing * 5, this.y - 7, 20 + this.sheathe.charge * 40, this.sheathe.empowered ? '#ffd070' : '#ff2a48', 0.6 + this.sheathe.charge * 0.4);
     if (this.attack && this._swordTip) FX.frameLight(this._swordTip[0], this._swordTip[1], 30, '#ff3048', 0.8);
