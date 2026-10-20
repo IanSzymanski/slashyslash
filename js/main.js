@@ -5,7 +5,9 @@ const Game = {
   state: 'menu', mode: 'demo', time: 0, realTime: 0, acc: 0,
   player: null, enemies: [], projectiles: [], props: [], hazards: [], pickups: [], cuts: [],
   cam: { x: 520, y: 100, ox: 0, oy: 0, trauma: 0, rx: 0, ry: 0 },
-  slowScale: 1, slowT: 0, freezeT: 0,
+  slowScale: 1, slowT: 0, freezeT: 0, btT: 0, btDur: 0,
+  // cutscene: letterbox bars, camera focus, optional 2x zoom; the owner drives it and closes it
+  cine: null,
   stats: { kills: 0, score: 0, maxCombo: 0, parries: 0, wave: 0, time: 0, damageTaken: 0, ults: 0 },
   combo: 0, comboT: 0, comboPop: 0, announcements: [], overT: 0, overVictory: false,
 
@@ -14,11 +16,14 @@ const Game = {
   toMenu() {
     this.state = 'menu';
     if (this.player) this.player.stopAllLoops();
+    for (const e of this.enemies) if (e.stopLoops) e.stopLoops();
+    Sound.stopAll();
     FX.clear();
     this.enemies = []; this.projectiles = []; this.hazards = []; this.pickups = []; this.cuts = []; this.props = [];
-    this.player = new Player(476, 220);
+    this.player = new Player(470, 205);
     this.player.facing = 1;
-    this.slowScale = 1; this.slowT = 0; this.freezeT = 0;
+    this.slowScale = 1; this.slowT = 0; this.freezeT = 0; this.btT = 0;
+    this.cine = null; Input.locked = false;
     Sound.setSlow(false);
     Sound.setIntensity(0);
     this.announcements = [];
@@ -29,12 +34,15 @@ const Game = {
     Sound.init();
     Sound.startMusic();
     if (this.player) this.player.stopAllLoops();
+    for (const e of this.enemies) if (e.stopLoops) e.stopLoops();
+    Sound.stopAll();
     this.mode = mode;
     this.state = 'playing';
     FX.clear();
     this.enemies = []; this.projectiles = []; this.hazards = []; this.pickups = []; this.cuts = []; this.props = [];
-    this.player = new Player(720, Level.GROUND);
-    this.time = 0; this.acc = 0; this.slowScale = 1; this.slowT = 0; this.freezeT = 0; this.overT = 0;
+    this.player = new Player(1200, Level.GROUND);
+    this.time = 0; this.acc = 0; this.slowScale = 1; this.slowT = 0; this.freezeT = 0; this.overT = 0; this.btT = 0;
+    this.cine = null; Input.locked = false;
     this.stats = { kills: 0, score: 0, maxCombo: 0, parries: 0, wave: 0, time: 0, damageTaken: 0, ults: 0 };
     this.combo = 0; this.comboT = 0; this.announcements = [];
     Render.hpTrail = PC.MAX_HP; Render.shTrail = PC.MAX_SHIELD;
@@ -52,6 +60,7 @@ const Game = {
     if (this.state !== 'playing') return;
     this.state = 'paused';
     if (this.player) { this.player.stopLoop('charge'); this.player.stopLoop('reel'); this.player.stopLoop('ult'); }
+    for (const e of this.enemies) if (e.stopLoops) e.stopLoops();
     Sound.setSlow(true);
     UI.show('pause');
   },
@@ -84,6 +93,33 @@ const Game = {
     Sound.setSlow(true);
   },
   shake(t) { this.cam.trauma = Math.min(1, this.cam.trauma + t); },
+  // Bullet time for the grenade rebound: slow motion plus a desaturated screen.
+  bulletTime(dur) { this.btT = dur; this.btDur = dur; this.slowmo(0.25, dur); },
+  endBulletTime() {
+    if (this.btT <= 0) return;
+    this.btT = 0; this.slowScale = 1; this.slowT = 0;
+    Sound.setSlow(false);
+  },
+  bulletK() {
+    if (this.btT <= 0) return 0;
+    return clamp(this.btT / 0.12, 0, 1) * clamp((this.btDur - this.btT) / 0.08, 0, 1);
+  },
+  startCine(o) {
+    this.cine = Object.assign({ t: 0, bars: 0, zoom: 1, focus: null, owner: null, caption: null, big: null, bigT: 0, closing: false }, o);
+    Input.locked = true;
+    const p = this.player;
+    if (p.sheathe) p.cancelSheathe();
+    if (p.tether) p.releaseTether();
+    p.attackQueued = false; p.ultHold = 0; p.stopLoop('ult');
+    this.endBulletTime();
+  },
+  // Hands control back while the bars slide out.
+  closeCine() {
+    if (!this.cine) return;
+    this.cine.closing = true; this.cine.zoom = 1; this.cine.caption = null; this.cine.big = null;
+    Input.locked = false;
+  },
+  cineActive() { return !!this.cine && !this.cine.closing; },
   queueCut(delay, fn) { this.cuts.push({ t: delay, fn }); },
   announce(text, sub, color = '#ff3a52', dur = 1.6, small = false) {
     this.announcements = this.announcements.filter((a) => a.text !== text);
@@ -115,7 +151,7 @@ const Game = {
     this.saveBest();
   },
   victory() {
-    SaveData.demoCleared = true;
+    if (this.mode === 'demo') SaveData.demoCleared = true;
     saveProgress();
     this.overT = 1.2;
     this.overVictory = true;
@@ -131,6 +167,14 @@ const Game = {
 
   // ---------- simulation ----------
   step(realDt) {
+    const C = this.cine;
+    if (C) {
+      C.t += realDt;
+      if (C.big) C.bigT += realDt;
+      C.bars = approach(C.bars, C.closing ? 0 : 1, realDt * (C.closing ? 2.5 : 3.5));
+      if (C.closing && C.bars <= 0) this.cine = null;
+    }
+    if (this.btT > 0) { this.btT -= realDt; if (this.btT <= 0) this.btT = 0; }
     if (this.slowT > 0) {
       this.slowT -= realDt;
       if (this.slowT <= 0) { this.slowScale = 1; Sound.setSlow(false); }
@@ -152,16 +196,22 @@ const Game = {
       if (n >= 10) this.acc = 0;
     }
     this.updateCamera(realDt);
-    if (this.overT > 0) {
+    if (this.overT > 0 && !this.cineActive()) {
       this.overT -= realDt;
-      if (this.overT <= 0) { this.state = 'over'; this.player.stopAllLoops(); this.saveBest(); UI.showOver(this.overVictory); }
+      if (this.overT <= 0) {
+        this.state = 'over'; this.player.stopAllLoops();
+        for (const e of this.enemies) if (e.stopLoops) e.stopLoops();
+        Sound.stopAll();
+        this.saveBest(); UI.showOver(this.overVictory);
+      }
     }
   },
   tick(dt) {
     this.time += dt;
     if (!this.player.dead) this.stats.time += dt;
     this.player.update(dt);
-    for (const e of this.enemies) if (!e.dead) e.update(dt);
+    const cine = this.cineActive() ? this.cine : null;
+    for (const e of this.enemies) if (!e.dead && (!cine || e === cine.owner)) e.update(dt);
     // keep grounded enemies from stacking
     const es = this.enemies;
     for (let i = 0; i < es.length; i++) {
@@ -182,7 +232,7 @@ const Game = {
     for (const h of this.hazards) h.update(dt);
     for (const p of this.props) p.update(dt);
     for (const pk of this.pickups) pk.update(dt);
-    if (!this.player.dead) Director.update(dt);
+    if (!this.player.dead && !cine) Director.update(dt);
     FX.update(dt);
     if (this.comboT > 0) { this.comboT -= dt; if (this.comboT <= 0) this.combo = 0; }
     this.enemies = this.enemies.filter((e) => !e.dead);
@@ -195,10 +245,12 @@ const Game = {
     const p = this.player, cam = this.cam;
     const look = S.visuals.lookAhead;
     const lx = (Input.mx - VIEW_W / 2) * look * 0.55, ly = (Input.my - VIEW_H / 2) * look * 0.45;
-    const tx = p.x - VIEW_W / 2 + lx + clamp(p.vx, -400, 400) * 0.1;
-    const ty = p.y - 12 - VIEW_H * 0.56 + ly + clamp(p.vy, -300, 400) * 0.05;
-    cam.x = damp(cam.x, tx, 7, realDt);
-    cam.y = damp(cam.y, ty, 5.5, realDt);
+    let tx = p.x - VIEW_W / 2 + lx + clamp(p.vx, -400, 400) * 0.1;
+    let ty = p.y - 12 - VIEW_H * 0.56 + ly + clamp(p.vy, -300, 400) * 0.05;
+    const C = this.cine;
+    if (C && C.focus && !C.closing) { tx = C.focus.x - VIEW_W / 2; ty = C.focus.y - 12 - VIEW_H / 2; }
+    cam.x = damp(cam.x, tx, C && !C.closing ? 4 : 7, realDt);
+    cam.y = damp(cam.y, ty, C && !C.closing ? 4 : 5.5, realDt);
     cam.x = clamp(cam.x, 0, Level.W - VIEW_W);
     cam.y = clamp(cam.y, Level.CAM_Y_MIN, Level.H - VIEW_H);
     cam.trauma = Math.max(0, cam.trauma - realDt * 1.7);
@@ -237,9 +289,12 @@ const Game = {
       else if (Game.state === 'paused') Game.resume();
       Input.consume();
     }
-    if (Game.state === 'playing') Game.step(realDt);
-    else if (Game.state === 'menu') { Game.menuStep(realDt); Input.consume(); }
-    else Input.consume();
+    // a bug in one frame is logged, not allowed to stop the loop
+    try {
+      if (Game.state === 'playing') Game.step(realDt);
+      else if (Game.state === 'menu') { Game.menuStep(realDt); Input.consume(); }
+      else Input.consume();
+    } catch (err) { console.error(err); Input.consume(); }
     try { Render.draw(realDt); } catch (err) { console.error(err); }
     requestAnimationFrame(frame);
   }

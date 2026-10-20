@@ -38,7 +38,8 @@ registerUltimate({
 
   update(p, dt) {
     const u = p.ult;
-    u.t += dt; u.lungeCD -= dt; u.jumpCD -= dt; u.lungeT -= dt;
+    if (!Game.cineActive()) u.t += dt;
+    u.lungeCD -= dt; u.jumpCD -= dt; u.lungeT -= dt;
     const mx = (Input.isDown('right') ? 1 : 0) - (Input.isDown('left') ? 1 : 0);
     const up = Input.isDown('jump'), down = Input.isDown('crouch');
     if (Input.wasPressed('dash')) p.tryDash(mx, up, down);
@@ -54,8 +55,34 @@ registerUltimate({
       FX.ring(p.x, p.cy, 3, 20, 0.2, { w: 1 });
     }
 
+    // Latched on with the tether: grind the target with damage that compounds every tick.
+    if (p.grinding()) {
+      const T = p.tether, e = T.target;
+      if (!e || e.dead || !Input.isDown('tether')) p.releaseTether();
+      else {
+        p.x = e.x; p.y = e.cy + p.h * 0.55; p.vx = 0; p.vy = 0; p.onGround = false;
+        p.facing = Math.cos(p.aimAngle) >= 0 ? 1 : -1;
+        T.grindT -= dt;
+        if (T.grindT <= 0) {
+          T.grindT = 0.1;
+          const shielded = e.shielded && e.shielded();
+          if (!shielded) T.grindN++;
+          const dmg = Math.min(150, 5 * Math.pow(1.16, T.grindN));
+          hurtEnemy(e, dmg, { cause: 'saw', noKnock: true, stagger: 0.3, hitstop: 0, angle: rand(0, TAU), crit: dmg >= 60 });
+          Sound.play('sawHit');
+          FX.sparks(p.x, p.cy, 6 + Math.min(10, T.grindN / 2), rand(0, TAU), TAU, 80, 260);
+          if (T.grindN > 8) FX.elec(p.x, p.cy, 16, 2);
+          Game.shake(Math.min(0.12, 0.02 + T.grindN * 0.004));
+        }
+        u.spin += 40 * dt * p.facing;
+        if (p.loops.saw) p.loops.saw.set(700, true);
+        if (u.t >= u.dur) this.end(p);
+        return;
+      }
+    }
     const wasGround = p.onGround;
     if (p.dashT > 0) p.moveDash(dt);
+    else if (p.rebounding()) p.moveRebound(dt);
     else if (p.zipping()) p.moveZip(dt);
     else if (u.lungeT > 0) p.vy += 300 * dt;
     else {
@@ -72,7 +99,7 @@ registerUltimate({
       }
     }
     const pvx = p.vx, pvy = p.vy;
-    const col = Level.moveBody(p, dt, { step: 11 });
+    const col = Level.moveBody(p, dt, { step: 11, ghostCover: p.dashT > 0 || p.zipping() || p.rebounding() });
     if ((col.wallL || col.wallR) && Math.abs(pvx) > 160 && !p.zipping()) {
       p.vx = -pvx * 0.45;
       FX.sparks(p.x + (col.wallR ? 6 : -6), p.cy, 10, col.wallR ? Math.PI : 0, 1.6, 60, 220);
@@ -109,7 +136,7 @@ registerUltimate({
       if (!pr.dead && circleRect(cx, cy, R, pr.x - pr.w / 2, pr.y - pr.h, pr.w, pr.h)) pr.hit(30, { kx: p.vx * 0.5, ky: -150, heavy: true });
     }
     for (const b of Game.projectiles) {
-      if (!b.dead && b.hostile && dist(b.x, b.y, cx, cy) < R + 3) { b.dead = true; FX.sparks(b.x, b.y, 6, 0, TAU, 40, 140); }
+      if (!b.dead && b.hostile && !b.rebound && dist(b.x, b.y, cx, cy) < R + 3) { b.dead = true; FX.sparks(b.x, b.y, 6, 0, TAU, 40, 140); }
     }
     // grinding sparks on surfaces
     const wallL = Level.touchingWall(p, -1), wallR = Level.touchingWall(p, 1);

@@ -8,6 +8,8 @@ const ENEMY_DEFS = {
   brute: { hp: 250, w: 20, h: 31, speed: 42, score: 450, mass: 3.5, dmg: 22, heavy: true, debris: ['#3a3a44', '#55555f', '#24242c', '#7a3e28', '#ff7a2a'] },
 };
 const ENEMY_BASE_STATE = { scrapper: 'chase', gunner: 'move', drone: 'hover', brute: 'walk' };
+// The melee glint flashes this long before a hit lands, so a reaction to it lands inside the parry window.
+const GLINT_LEAD = 0.28;
 
 class Enemy {
   constructor(type, x, y, scale = {}) {
@@ -20,12 +22,34 @@ class Enemy {
     this.state = ENEMY_BASE_STATE[type]; this.st = 0; this.cd = rand(0.6, 1.5);
     this.stun = 0; this.hitFlash = 0; this.facing = x > Game.player.x ? -1 : 1;
     this.spawning = true; this.spawnT = 0.75; this.dead = false; this.t = rand(0, 10);
-    this.yank = null; this.tethered = false; this.cutMark = 0; this.poise = 0;
+    this.tethered = false; this.cutMark = 0; this.poise = 0;
     this.speedVar = rand(0.88, 1.12); this.aim = 0; this.side = chance(0.5) ? 1 : -1; this.jumpCD = 0;
     this.struck = false; this.walk = 0; this.onGround = false;
   }
   get cy() { return this.y - this.h / 2; }
-  setState(s) { this.state = s; this.st = 0; }
+  setState(s) { this.state = s; this.st = 0; this.glinted = false; }
+  // Wind-up length of the current melee attack, or 0 when none is coming.
+  meleeWind() {
+    const s = this.state;
+    if (this.type === 'scrapper' && s === 'windup') return this.tele(0.45);
+    if (this.type === 'brute' && s === 'punchWind') return this.tele(0.55);
+    if (this.type === 'drone' && s === 'tele') return this.tele(0.5);
+    return 0;
+  }
+  glintPoint() {
+    const f = this.facing;
+    if (this.type === 'scrapper') return [this.x - f * 1, this.y - 27];
+    if (this.type === 'brute') return [this.x - f * 6, this.y - 23];
+    return [this.x + f * 3, this.y - 6];
+  }
+  checkGlint() {
+    const w = this.meleeWind();
+    if (!w || this.glinted || this.st < Math.max(0, w - GLINT_LEAD)) return;
+    this.glinted = true;
+    const [gx, gy] = this.glintPoint();
+    FX.glint(gx, gy, { c: '#ffe8a0', size: this.heavy ? 1.1 : 0.8, follow: () => this.glintPoint() });
+    Sound.play('glint');
+  }
   windingUp() { return this.state === 'windup' || this.state === 'aim' || this.state === 'tele' || this.state === 'punchWind' || this.state === 'slamWind'; }
   stagger(dur, kx = 0) {
     if (this.heavy && dur < 1) dur *= 0.5;
@@ -33,12 +57,6 @@ class Enemy {
     this.vx += kx / this.mass;
     if (this.state !== ENEMY_BASE_STATE[this.type]) this.setState(ENEMY_BASE_STATE[this.type]);
     this.cd = Math.max(this.cd, 0.4);
-  }
-  yankTo(p) {
-    this.yank = { t: 0, dur: 0.3, tx: p.x + p.facing * 15, ty: p.y };
-    this.setState(ENEMY_BASE_STATE[this.type]);
-    this.stun = 0.9;
-    this.onGround = false;
   }
   scaleSpeed() { return this.def.speed * S.enemies.speed * this.speedVar; }
   tele(base) { return base * S.enemies.telegraph; }
@@ -58,22 +76,13 @@ class Enemy {
       return;
     }
     this.cd -= dt * S.enemies.aggression;
-    if (this.yank) {
-      const Y = this.yank;
-      Y.t += dt;
-      this.vx = clamp((Y.tx - this.x) * 13, -760, 760);
-      this.vy = clamp((Y.ty - 8 - this.y) * 13 - 30, -760, 760);
-      Level.moveBody(this, dt, { oneWay: !this.flying });
-      if (Math.random() < 0.7) FX.sparks(this.x, this.cy, 1, Math.atan2(-this.vy, -this.vx), 0.5, 40, 120);
-      if (Y.t >= Y.dur) { this.yank = null; this.vx *= 0.15; this.vy = 0; }
-      return;
-    }
     if (this.stun > 0) {
       this.stun -= dt;
       this.physics(dt, true);
       return;
     }
     this[this.type](dt);
+    this.checkGlint();
     this.physics(dt, false);
   }
   physics(dt, stunned) {
@@ -437,10 +446,17 @@ class Enemy {
 }
 
 function hurtEnemy(e, dmg, o = {}) {
-  if (e.dead || e.spawning) return 0;
-  let d = dmg;
+  if (e.dead || e.spawning || e.dying) return 0;
+  if (e.shielded && e.shielded()) { e.shieldHit(o); return 0; }
+  if (e.intercept && e.intercept(o)) return 0;
+  if (e.dodging && e.dodging()) {
+    if (!e._missT || Game.time > e._missT) { e._missT = Game.time + 0.4; FX.text('DODGE', e.x, e.y - e.h - 8, { c: '#7af0ff', always: true, dur: 0.5, vy: -20 }); }
+    return 0;
+  }
+  let d = dmg * (e.damageTakenMul ? e.damageTakenMul() : 1);
   if (e.tethered) d *= 1.25;
   d = Math.max(1, Math.round(d));
+  if (e.gateDamage) d = e.gateDamage(d);
   e.hp -= d;
   e.hitFlash = 0.08;
   if (!o.noKnock) {
@@ -469,6 +485,7 @@ function hurtEnemy(e, dmg, o = {}) {
 }
 
 function killEnemy(e, o) {
+  if (e.onDeath) { e.onDeath(o); return; }
   e.dead = true; e.tethered = false; e.hp = 0;
   const g = Sprite.begin(e.facing);
   e.render(g);
@@ -506,9 +523,10 @@ function killEnemy(e, o) {
 }
 
 class Bolt {
-  constructor(x, y, ang, speed, dmg) {
+  constructor(x, y, ang, speed, dmg, col) {
     this.x = x; this.y = y; this.vx = Math.cos(ang) * speed; this.vy = Math.sin(ang) * speed;
     this.dmg = dmg; this.hostile = true; this.life = 3; this.dead = false;
+    this.col = col || { outer: '#ff7a2a', core: '#fff0a0', light: '#ffb040' };
   }
   reflect(ang, mul, dmg) {
     const sp = Math.max(300, Math.hypot(this.vx, this.vy) * mul);
@@ -550,11 +568,11 @@ class Bolt {
   drawEmissive(ctx, camX, camY) {
     const x = this.x - camX, y = this.y - camY, sp = Math.hypot(this.vx, this.vy) || 1;
     const tx = x - (this.vx / sp) * 8, ty = y - (this.vy / sp) * 8;
-    ctx.fillStyle = this.hostile ? '#ff7a2a' : '#ff2a48'; pline(ctx, tx, ty, x, y, 2);
-    ctx.fillStyle = this.hostile ? '#fff0a0' : '#ffffff'; pline(ctx, x - (this.vx / sp) * 3, y - (this.vy / sp) * 3, x, y, 1);
+    ctx.fillStyle = this.hostile ? this.col.outer : '#ff2a48'; pline(ctx, tx, ty, x, y, 2);
+    ctx.fillStyle = this.hostile ? this.col.core : '#ffffff'; pline(ctx, x - (this.vx / sp) * 3, y - (this.vy / sp) * 3, x, y, 1);
     ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 2);
   }
-  addLights() { FX.frameLight(this.x, this.y, 24, this.hostile ? '#ffb040' : '#ff3048', 0.9); }
+  addLights() { FX.frameLight(this.x, this.y, 24, this.hostile ? this.col.light : '#ff3048', 0.9); }
 }
 
 class Shockwave {
@@ -588,22 +606,36 @@ class Barrel {
   constructor(x, y) {
     this.x = x; this.y = y; this.w = 10; this.h = 14; this.vx = 0; this.vy = 0;
     this.fuse = -1; this.dead = false; this.thrown = 0; this.tethered = false; this.isEnemy = false; this.heavy = false;
-    this.onGround = false;
+    this.onGround = false; this.towed = false; this.grabR = 9;
   }
+  get cx() { return this.x; }
+  get cy() { return this.y - 7; }
   hit(dmg, o = {}) {
     if (this.dead) return;
     this.vx += (o.kx || 0) * 0.5; this.vy = Math.min(this.vy, (o.ky || 0) * 0.5);
     if (this.fuse < 0) { this.fuse = o.heavy ? 0.12 : 0.38; Sound.play('barrelHit'); }
     FX.sparks(this.x, this.y - 7, 5, rand(0, TAU), TAU, 40, 140);
   }
-  yankTo(p) {
-    const dx = p.x - this.x, dy = p.cy - this.y;
-    this.vx = dx * 3.2; this.vy = dy * 3.2 - 200;
-    this.thrown = 0.8; this.onGround = false;
-    if (this.fuse < 0) this.fuse = 1.2;
+  grab() { this.towed = true; this.onGround = false; }
+  // Swing on the tether a short distance from the hand.
+  towTo(hx, hy, dt, p) {
+    const dx = this.x - hx, dy = this.cy - hy, d = Math.hypot(dx, dy) || 1;
+    const L = Math.min(d, 26), tx = hx + (dx / d) * L, ty = hy + (dy / d) * L - 6;
+    this.vx = (tx - this.x) * 14 + p.vx * 0.5; this.vy = (ty - this.cy) * 14 + p.vy * 0.5;
+  }
+  throwAt(ang) {
+    this.towed = false;
+    this.vx = Math.cos(ang) * 400; this.vy = Math.sin(ang) * 400 - 60;
+    this.thrown = 1.4; this.onGround = false;
+    if (this.fuse < 0) this.fuse = 1.3;
   }
   update(dt) {
     if (this.dead) return;
+    if (this.towed) {
+      if (!this.tethered) this.towed = false;
+      this.x += this.vx * dt; this.y += this.vy * dt;
+      return;
+    }
     this.vy = Math.min(this.vy + 900 * dt, 520);
     if (this.onGround) this.vx = approach(this.vx, 0, 500 * dt);
     Level.moveBody(this, dt, { oneWay: true });
@@ -697,4 +729,40 @@ class Pickup {
     ctx.fillStyle = '#ffffff'; ctx.fillRect(x, y, 1, 1);
   }
   addLights() { FX.frameLight(this.x, this.y - 4, 18, '#5aff7a', 0.7); }
+}
+
+// Rubble kicked up by the slide attack.
+class Rock {
+  constructor(x, y, vx, vy, dmg) {
+    this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.dmg = dmg;
+    this.hostile = false; this.dead = false; this.life = 1.2; this.sz = Math.random() < 0.4 ? 3 : 2;
+    this.c = pick(['#5c5464', '#6e6678', '#4a4252', '#7a6a5a']);
+  }
+  update(dt) {
+    this.life -= dt;
+    if (this.life <= 0) { this.dead = true; return; }
+    const py = this.y;
+    this.vy += 620 * dt;
+    this.x += this.vx * dt; this.y += this.vy * dt;
+    if (Level.pointSolid(this.x, this.y, py)) {
+      this.dead = true;
+      FX.dust(this.x, py, 1, { smax: 20, r1: 2, c: '#6a5a5a' });
+      return;
+    }
+    for (const e of Game.enemies) {
+      if (e.dead || e.spawning) continue;
+      if (this.x > e.x - e.w / 2 - 1 && this.x < e.x + e.w / 2 + 1 && this.y > e.y - e.h - 1 && this.y < e.y + 1) {
+        hurtEnemy(e, this.dmg, { kx: this.vx * 0.4, ky: -80, cause: 'rock', angle: Math.atan2(this.vy, this.vx), stagger: 0.3, hitstop: 0.01 });
+        FX.debris(this.x, this.y, 3, [this.c], 80);
+        this.dead = true;
+        return;
+      }
+    }
+  }
+  draw(ctx, camX, camY) {
+    const x = Math.round(this.x - camX), y = Math.round(this.y - camY);
+    ctx.fillStyle = '#0b0910'; ctx.fillRect(x - 1, y - 1, this.sz + 2, this.sz + 2);
+    ctx.fillStyle = this.c; ctx.fillRect(x, y, this.sz, this.sz);
+    ctx.fillStyle = '#9a90a0'; ctx.fillRect(x, y, 1, 1);
+  }
 }

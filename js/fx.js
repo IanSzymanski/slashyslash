@@ -6,10 +6,11 @@ const PALETTES = {
   gold: [[255, 255, 238], [255, 214, 120], [255, 70, 70], [150, 10, 36]],
   violet: [[250, 240, 255], [255, 120, 200], [200, 30, 110], [90, 10, 60]],
   enemy: [[255, 250, 220], [255, 200, 90], [230, 110, 40], [120, 40, 20]],
+  cyan: [[240, 255, 255], [120, 240, 255], [30, 170, 210], [10, 60, 90]],
 };
 
 const FX = {
-  parts: [], swooshes: [], lines: [], rings: [], texts: [], decals: [], ghosts: [], gibs: [], bolts: [],
+  parts: [], swooshes: [], lines: [], rings: [], texts: [], decals: [], ghosts: [], gibs: [], bolts: [], glints: [],
   lights: [], frameLights: [],
   flashA: 0, flashColor: '#ffffff',
   scratch: null,
@@ -19,7 +20,7 @@ const FX = {
   init() { this.scratch = makeCanvas(360, 360); },
   clear() {
     this.parts.length = 0; this.swooshes.length = 0; this.lines.length = 0; this.rings.length = 0;
-    this.texts.length = 0; this.decals.length = 0; this.gibs.length = 0; this.bolts.length = 0; this.lights.length = 0;
+    this.texts.length = 0; this.decals.length = 0; this.gibs.length = 0; this.bolts.length = 0; this.lights.length = 0; this.glints.length = 0;
     for (const g of this.ghosts) this.ghostPool.push(g.c);
     this.ghosts.length = 0;
     this.flashA = 0;
@@ -149,6 +150,13 @@ const FX = {
     if (this.gibs.length > 30) this.gibs.shift();
     this.gibs.push({ img, x, y, ox, oy, nx: Math.cos(ang + Math.PI / 2), ny: Math.sin(ang + Math.PI / 2), side, vx, vy, rot: 0, vr: rand(-8, 8), t: 0, dur: rand(1.6, 2.4), ground: false, bottom });
   },
+  // Star-shaped glare: the tell that a melee hit is about to land. follow() returns the world point to track.
+  glint(x, y, o = {}) {
+    const g = Object.assign({ x, y, t: 0, dur: 0.26, c: '#ffd070', size: 1, follow: null }, o);
+    this.glints.push(g);
+    this.light(x, y, 34 * g.size, g.c, 1, g.dur);
+    return g;
+  },
   light(x, y, r, color, a = 1, dur = 0.2) { this.lights.push({ x, y, r, color, a, t: 0, dur }); },
   frameLight(x, y, r, color, a = 1) { this.frameLights.push({ x, y, r, color, a }); },
   flash(color = '#ffffff', a = 0.5) {
@@ -203,6 +211,10 @@ const FX = {
         this.sparks(tx, ty, 2, a + (Math.PI / 2) * s.dir, 1.4, 40, 160, { life: 0.8, c1: rgba(...s.pal[1], 1), c2: rgba(...s.pal[3], 1) });
       }
     });
+    step(this.glints, (g) => {
+      const at = g.follow && g.follow();
+      if (at) { g.x = at[0]; g.y = at[1]; }
+    });
     step(this.lines);
     step(this.rings);
     step(this.texts, (o, d) => { o.y += o.vy * d; o.vy *= Math.max(0, 1 - 4 * d); });
@@ -243,6 +255,11 @@ const FX = {
           if (Math.abs(xx) / r + Math.abs(yy) / 3 > 1) continue;
           if (bayer(xx + x, yy + y) < 0.6) ctx.fillRect(x + xx, y + yy, 1, 1);
         }
+      } else if (d.kind === 'gouge') {
+        ctx.fillStyle = '#100c14';
+        pline(ctx, x, y, x + d.len, y, 1); pline(ctx, x + d.len * 0.1, y + 1, x + d.len * 0.85, y + 1, 1);
+        ctx.fillStyle = '#7a7080'; pline(ctx, x + d.len * 0.2, y - 1, x + d.len * 0.7, y - 1, 1);
+        if (d.t < 0.6) { ctx.fillStyle = d.t < 0.25 ? '#ffe0a0' : '#ff5a3a'; pline(ctx, x + d.len * 0.55, y, x + d.len, y, 1); }
       } else if (d.kind === 'oil') {
         ctx.fillStyle = d.c || '#1a1418';
         ctx.fillRect(x - ((d.sz / 2) | 0), y - 1, d.sz || 2, 1);
@@ -380,6 +397,27 @@ const FX = {
       drawBolt(ctx, b.x0 - cx, b.y0 - cy, b.x1 - cx, b.y1 - cy, b.outer, b.core, b.jag, b.w);
     }
     this.drawParticles(ctx, cx, cy);
+    for (const g of this.glints) this.drawGlint(ctx, g, cx, cy);
+  },
+  drawGlint(ctx, g, cx, cy) {
+    const k = g.t / g.dur, s = k < 0.2 ? k / 0.2 : 1 - (k - 0.2) / 0.8;
+    if (s <= 0) return;
+    const x = Math.round(g.x - cx), y = Math.round(g.y - cy);
+    const hL = Math.round((6 + 10 * g.size) * s), vL = Math.round(hL * 0.6), dL = Math.round(hL * 0.28);
+    ctx.fillStyle = '#0b0910';
+    ctx.fillRect(x - 2, y - 2, 5, 5);
+    ctx.fillStyle = g.c;
+    ctx.fillRect(x - hL, y, hL * 2 + 1, 1);
+    ctx.fillRect(x, y - vL, 1, vL * 2 + 1);
+    for (let i = 1; i <= dL; i++) {
+      ctx.fillRect(x + i, y + i, 1, 1); ctx.fillRect(x - i, y + i, 1, 1);
+      ctx.fillRect(x + i, y - i, 1, 1); ctx.fillRect(x - i, y - i, 1, 1);
+    }
+    const hI = Math.round(hL * 0.55), vI = Math.round(vL * 0.55);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x - hI, y, hI * 2 + 1, 1);
+    ctx.fillRect(x, y - vI, 1, vI * 2 + 1);
+    if (s > 0.3) ctx.fillRect(x - 1, y - 1, 3, 3);
   },
   drawTexts(ctx, cx, cy) {
     for (const t of this.texts) {

@@ -2,60 +2,73 @@
 // The abandoned city arena: collision geometry, body physics, and prerendered parallax layers.
 
 const Level = {
-  W: 2000, H: 400, GROUND: 360, CAM_Y_MIN: -50,
-  solids: [], platforms: [], deco: [],
+  W: 2400, H: 440, GROUND: 400, CAM_Y_MIN: -60,
+  solids: [], platforms: [], buildings: [],
   spawnGround: [], spawnHigh: [], barrelSpots: [],
-  lamps: [], neons: [], fires: [], beacons: [],
+  lamps: [], neons: [], fires: [], beacons: [], covers: [],
   layers: {},
   built: false,
 
   build() {
     if (this.built) return;
     this.built = true;
+    const G = this.GROUND;
     const S_ = (x, y, w, h, kind, style) => this.solids.push({ x, y, w, h, kind, style });
     const P_ = (x, y, w, kind) => this.platforms.push({ x, y, w, h: 4, kind, oneWay: true });
-    const G = this.GROUND;
-    S_(-200, G, 2400, 120, 'ground');
+    // Buildings are scenery you can run through; only their roofs and balconies are walkable.
+    const B_ = (x, top, w, style) => { this.buildings.push({ x, y: top, w, h: G - top, kind: 'building', style }); P_(x, top, w, 'roof'); };
+    S_(-200, G, 2800, 120, 'ground');
     S_(-200, -400, 240, G + 400, 'wall', 'concrete');
-    S_(1960, -400, 240, G + 400, 'wall', 'brick');
-    S_(-200, -260, 2400, 200, 'ceiling');
-    S_(150, 292, 100, G - 292, 'building', 'shop');
-    S_(410, 220, 130, G - 220, 'building', 'brick');
-    S_(900, 300, 90, G - 300, 'building', 'shop2');
-    S_(1240, 196, 150, G - 196, 'building', 'panel');
-    S_(1660, 262, 120, G - 262, 'building', 'brick2');
-    for (const cx of [318, 1080, 1520]) {
+    S_(2360, -400, 240, G + 400, 'wall', 'brick');
+    S_(-200, -260, 2800, 200, 'ceiling');
+    B_(110, 335, 140, 'shop');
+    B_(380, 205, 160, 'brick');
+    B_(860, 335, 120, 'shop2');
+    B_(1130, 175, 180, 'panel');
+    B_(1580, 255, 140, 'brick2');
+    B_(1960, 205, 160, 'concrete');
+    for (const cx of [300, 1400, 1870]) {
       S_(cx, G - 10, 38, 10, 'car');
       S_(cx + 8, G - 17, 22, 7, 'carTop');
     }
-    S_(760, G - 10, 22, 10, 'barrier');
-    S_(1862, G - 10, 22, 10, 'barrier');
+    S_(770, G - 10, 22, 10, 'barrier');
+    S_(2250, G - 10, 22, 10, 'barrier');
+    // Jersey barriers tall enough to stop shots at chest height. Running into one vaults it.
+    for (const x of [180, 560, 1100, 1320, 1560, 2120]) S_(x, G - 18, 24, 18, 'cover');
+    this.covers = this.solids.filter((q) => q.kind === 'cover');
 
-    P_(40, 300, 66, 'fire'); P_(40, 240, 60, 'fire');
-    P_(360, 272, 50, 'fire');
-    P_(540, 292, 56, 'fire'); P_(540, 252, 56, 'fire');
-    P_(600, 258, 280, 'overpass');
-    P_(990, 318, 110, 'scaffold'); P_(1100, 278, 80, 'scaffold'); P_(1180, 238, 60, 'scaffold');
-    P_(1390, 300, 60, 'fire'); P_(1390, 252, 60, 'fire');
-    P_(1460, 284, 160, 'sign');
-    P_(1612, 316, 48, 'fire');
-    P_(1800, 304, 90, 'scaffold'); P_(1888, 252, 72, 'fire');
+    // tiers sit about 65px apart so a jump plus double jump reaches the next one
+    P_(40, 335, 60, 'fire'); P_(40, 270, 56, 'fire'); P_(40, 205, 52, 'fire');
+    P_(2300, 335, 60, 'fire'); P_(2304, 270, 56, 'fire'); P_(2308, 205, 52, 'fire');
+    P_(340, 335, 40, 'balcony'); P_(540, 270, 46, 'balcony'); P_(540, 335, 40, 'balcony');
+    P_(255, 270, 60, 'girder');
+    P_(620, 320, 220, 'overpass');
+    P_(690, 250, 90, 'girder');
+    P_(990, 335, 70, 'scaffold'); P_(1040, 270, 60, 'scaffold');
+    P_(1090, 215, 40, 'balcony'); P_(1310, 240, 46, 'balcony'); P_(1310, 310, 40, 'balcony');
+    P_(1400, 300, 140, 'sign');
+    P_(1450, 225, 80, 'girder');
+    P_(1540, 325, 40, 'balcony');
+    P_(1780, 335, 100, 'scaffold');
+    P_(1790, 270, 90, 'girder');
+    P_(1920, 335, 40, 'balcony'); P_(2120, 270, 46, 'balcony');
+    P_(2190, 300, 70, 'girder');
 
     this.all = this.solids.concat(this.platforms);
-    this.spawnGround = [70, 270, 590, 700, 840, 1030, 1200, 1440, 1620, 1820, 1930].map((x) => ({ x, y: G }));
+    this.spawnGround = [70, 270, 470, 700, 900, 1060, 1250, 1450, 1650, 1850, 2050, 2280].map((x) => ({ x, y: G }));
     this.spawnHigh = [
-      { x: 475, y: 220 }, { x: 1315, y: 196 }, { x: 1720, y: 262 }, { x: 740, y: 258 },
-      { x: 1540, y: 284 }, { x: 200, y: 292 }, { x: 945, y: 300 }, { x: 70, y: 240 },
+      { x: 180, y: 335 }, { x: 460, y: 205 }, { x: 730, y: 320 }, { x: 920, y: 335 }, { x: 1220, y: 175 },
+      { x: 1470, y: 300 }, { x: 1650, y: 255 }, { x: 2040, y: 205 }, { x: 735, y: 250 }, { x: 1490, y: 225 }, { x: 1830, y: 270 },
     ];
-    this.barrelSpots = [{ x: 280, y: G }, { x: 690, y: 258 }, { x: 1010, y: G }, { x: 1462, y: G }, { x: 1800, y: G }, { x: 1300, y: 196 }];
-    this.lamps = [{ x: 300, flick: false }, { x: 660, flick: true }, { x: 1160, flick: false }, { x: 1490, flick: false }, { x: 1840, flick: true }];
-    this.fires = [{ x: 120, y: G }, { x: 868, y: G }, { x: 1598, y: G }, { x: 1355, y: 196 }];
+    this.barrelSpots = [{ x: 240, y: G }, { x: 700, y: 320 }, { x: 1020, y: G }, { x: 1480, y: G }, { x: 1990, y: G }, { x: 1250, y: 175 }, { x: 2230, y: G }];
+    this.lamps = [{ x: 330, flick: false }, { x: 760, flick: true }, { x: 1240, flick: false }, { x: 1600, flick: false }, { x: 2010, flick: true }, { x: 2290, flick: false }];
+    this.fires = [{ x: 140, y: G }, { x: 940, y: G }, { x: 1700, y: G }, { x: 1200, y: 175 }, { x: 2160, y: G }];
     this.neons = [
-      { x: 545, y: 160, text: 'HOTEL', color: '#ff3ad0', vertical: true, broken: 3 },
-      { x: 1258, y: 210, text: 'RAMEN', color: '#3af0ff', broken: -1 },
-      { x: 160, y: 300, text: '24H', color: '#ffd03a', broken: 1 },
-      { x: 1682, y: 272, text: 'BAR', color: '#7dff5a', broken: -1 },
-      { x: 912, y: 307, text: 'OPEN', color: '#ff5a5a', broken: 2 },
+      { x: 527, y: 222, text: 'HOTEL', color: '#ff3ad0', vertical: true, broken: 3 },
+      { x: 1150, y: 188, text: 'RAMEN', color: '#3af0ff', broken: -1 },
+      { x: 122, y: 344, text: '24H', color: '#ffd03a', broken: 1 },
+      { x: 1600, y: 266, text: 'BAR', color: '#7dff5a', broken: -1 },
+      { x: 872, y: 344, text: 'OPEN', color: '#ff5a5a', broken: 2 },
     ];
     this.prerender();
   },
@@ -92,6 +105,7 @@ const Level = {
         b.x += sx;
         const l = b.x - b.w / 2, r = b.x + b.w / 2, t = b.y - b.h, bt = b.y;
         for (const s of solids) {
+          if (opt.ghostCover && s.kind === 'cover') continue;
           if (r > s.x && l < s.x + s.w && bt > s.y && t < s.y + s.h) {
             // step up small lips (car hoods, kerbs)
             if (opt.step && b.onGround && s.y > bt - opt.step && this.rectFree(b.x - b.w / 2, s.y - b.h - 0.01, b.w, b.h)) {
@@ -113,6 +127,8 @@ const Level = {
         b.y += sy;
         const l = b.x - b.w / 2, r = b.x + b.w / 2, t = b.y - b.h, bt = b.y;
         for (const s of solids) {
+          // cover stands on the street, so it is never a ceiling: a body inside it rising leaves through the top
+          if (sy < 0 && s.kind === 'cover') continue;
           if (r > s.x && l < s.x + s.w && bt > s.y && t < s.y + s.h) {
             if (sy > 0) { b.y = s.y; c.ground = true; c.landed = s; } else { b.y = s.y + s.h + b.h; c.ceil = true; }
             b.vy = 0;
@@ -149,22 +165,44 @@ const Level = {
   touchingWall(b, dir) {
     const x = dir > 0 ? b.x + b.w / 2 + 1 : b.x - b.w / 2 - 1;
     for (const s of this.solids) {
-      if (s.kind === 'car' || s.kind === 'carTop' || s.kind === 'barrier' || s.kind === 'ceiling') continue;
+      if (s.kind === 'car' || s.kind === 'carTop' || s.kind === 'barrier' || s.kind === 'cover' || s.kind === 'ceiling') continue;
       if (x > s.x && x < s.x + s.w && b.y - 2 > s.y && b.y - b.h + 2 < s.y + s.h) return true;
     }
     return false;
   },
   raycast(x0, y0, x1, y1) { return rayRects(x0, y0, x1, y1, this.solids); },
+  // Flash-steps (dashes, drawn slashes) pass over low cover, so their reach ignores it.
+  raycastBody(x0, y0, x1, y1) { return rayRects(x0, y0, x1, y1, this.bodySolids || (this.bodySolids = this.solids.filter((q) => q.kind !== 'cover'))); },
+  coverAhead(b, dir) {
+    const x = dir > 0 ? b.x + b.w / 2 + 1 : b.x - b.w / 2 - 1;
+    for (const s of this.covers) if (x >= s.x && x < s.x + s.w && b.y > s.y && b.y - b.h < s.y + s.h) return s;
+    return null;
+  },
+  // Nearest x where a body of width w can stand on the street without overlapping a solid.
+  freeGroundX(x, w = 10) {
+    for (let d = 0; d < 300; d += 6) {
+      for (const c of d ? [x - d, x + d] : [x]) {
+        if (c < 60 || c > this.W - 60) continue;
+        if (this.rectFree(c - w / 2, this.GROUND - 24, w, 23.9)) return c;
+      }
+    }
+    return x;
+  },
 
   // ---------- prerender ----------
   layerSize(f) {
     return [Math.ceil(VIEW_W + (this.W - VIEW_W) * f) + 4, Math.ceil(VIEW_H + (this.H - VIEW_H - this.CAM_Y_MIN) * f) + 4];
   },
+  // Layer-space y where the street sits when the camera rests at ground level.
+  groundBase(f) {
+    const camGround = this.H - VIEW_H;
+    return this.GROUND - camGround + (camGround - this.CAM_Y_MIN) * f;
+  },
   prerender() {
     const R = mulberry32(1337);
     this.layers.sky = this.paintSky(R);
-    this.layers.far = this.paintSkyline(R, 0.15, { base: 262, hMin: 50, hMax: 130, wMin: 18, wMax: 46, col: '#2b1631', win: ['#5a2440', '#6e2c3c'], winP: 0.05, haze: '#4a1c34', tall: true });
-    this.layers.mid = this.paintSkyline(R, 0.45, { base: 322, hMin: 70, hMax: 190, wMin: 34, wMax: 80, col: '#1f1226', win: ['#9a3a40', '#c45a3a', '#5a2a48'], winP: 0.07, haze: '#3a1430', details: true });
+    this.layers.far = this.paintSkyline(R, 0.15, { base: Math.round(this.groundBase(0.15)) - 4, hMin: 50, hMax: 130, wMin: 18, wMax: 46, col: '#2b1631', win: ['#5a2440', '#6e2c3c'], winP: 0.05, haze: '#4a1c34', tall: true });
+    this.layers.mid = this.paintSkyline(R, 0.45, { base: Math.round(this.groundBase(0.45)) - 10, hMin: 70, hMax: 190, wMin: 34, wMax: 80, col: '#1f1226', win: ['#9a3a40', '#c45a3a', '#5a2a48'], winP: 0.07, haze: '#3a1430', details: true });
     this.layers.back = this.paintBack(R);
     this.layers.play = this.paintPlay(R);
   },
@@ -254,7 +292,7 @@ const Level = {
   paintBack(R) {
     const f = 0.8, [w, h] = this.layerSize(f);
     const c = makeCanvas(w, h), g = c.ctx;
-    const base = 384;
+    const base = Math.round(this.groundBase(f)) + 6;
     let x = -6;
     const cols = ['#2c2232', '#30243a', '#281e2e', '#33263a'];
     while (x < w) {
@@ -345,14 +383,14 @@ const Level = {
         for (let yy = p.y + 14; yy < G - 6; yy += 22) pline(g, p.x + 3, yy, p.x + p.w - 3, yy + 18, 1);
       }
     }
-    for (const s of this.solids) {
-      if (s.kind === 'building' || s.kind === 'wall') this.paintBuilding(g, s, R);
-    }
+    for (const s of this.buildings) this.paintBuilding(g, s, R);
+    for (const s of this.solids) if (s.kind === 'wall') this.paintBuilding(g, s, R);
     this.paintGround(g, R);
     for (const p of this.platforms) this.paintPlatform(g, p, R);
     for (const s of this.solids) {
       if (s.kind === 'car') this.paintCar(g, s, R);
       if (s.kind === 'barrier') this.paintBarrier(g, s);
+      if (s.kind === 'cover') this.paintCover(g, s);
     }
     // street lamps
     for (const l of this.lamps) {
@@ -370,8 +408,8 @@ const Level = {
       g.fillStyle = '#ff7a2a'; g.fillRect(fb.x - 4, fb.y - 13, 8, 1);
     }
     // trash, tyres, weeds along the street
-    for (let i = 0; i < 60; i++) {
-      const x = 50 + R() * 1900, k = R();
+    for (let i = 0; i < 80; i++) {
+      const x = 50 + R() * (this.W - 100), k = R();
       if (k < 0.3) { g.fillStyle = '#1e1a22'; g.fillRect(x, G - 4, 6, 4); g.fillStyle = '#2c2630'; g.fillRect(x + 1, G - 5, 4, 1); }
       else if (k < 0.5) { g.fillStyle = '#16131a'; pdisc(g, x, G - 3, 3); g.fillStyle = '#2a2530'; pdisc(g, x, G - 3, 1); }
       else { g.fillStyle = pick(['#2f5236', '#3f6e3e', '#4a7a3a']); for (let j = 0; j < 4; j++) g.fillRect(x + j * 2, G - 2 - ((R() * 5) | 0), 1, 6); }
@@ -445,6 +483,7 @@ const Level = {
       g.fillStyle = '#c84aa0';
       for (let i = 0; i < 3; i++) g.fillRect(sx + 4 + ((R() * (sw - 20)) | 0), sy + 8 + ((R() * 14) | 0), 6 + ((R() * 8) | 0), 1);
     }
+    if (s.kind === 'building') { g.fillStyle = 'rgba(12,8,18,0.24)'; g.fillRect(x, y + 4, w, h - 4); }
     // cornice and rim light
     g.fillStyle = light; g.fillRect(x, y, w, 3);
     g.fillStyle = '#9a6a6a'; g.fillRect(x, y, w, 1);
@@ -521,7 +560,19 @@ const Level = {
   },
   paintPlatform(g, p, R) {
     const { x, y, w } = p;
-    if (p.kind === 'fire') {
+    if (p.kind === 'roof') return;
+    if (p.kind === 'girder') {
+      g.fillStyle = '#17131b';
+      pline(g, x + 6, y, x + 6, Math.max(0, y - 140), 1); pline(g, x + w - 6, y, x + w - 6, Math.max(0, y - 140), 1);
+      g.fillStyle = '#3a3640'; g.fillRect(x, y, w, 2);
+      g.fillStyle = '#6a6470'; g.fillRect(x, y, w, 1);
+      g.fillStyle = '#2a2630'; g.fillRect(x + 1, y + 2, w - 2, 3);
+      g.fillStyle = '#18141c'; for (let i = 4; i < w - 3; i += 8) g.fillRect(x + i, y + 3, 3, 1);
+      g.fillStyle = '#3a3640'; g.fillRect(x, y + 5, w, 1);
+      g.fillStyle = '#7a3e28'; for (let i = 0; i < 3; i++) g.fillRect(x + ((R() * (w - 4)) | 0), y + 1 + ((R() * 4) | 0), 2, 1);
+      return;
+    }
+    if (p.kind === 'fire' || p.kind === 'balcony') {
       g.fillStyle = '#211d26';
       for (let i = 2; i < w; i += 4) g.fillRect(x + i, y - 9, 1, 9);
       g.fillRect(x, y - 10, w, 1);
@@ -529,7 +580,8 @@ const Level = {
       g.fillStyle = '#56505e'; g.fillRect(x, y, w, 1);
       g.fillStyle = '#1a161e'; for (let i = 1; i < w; i += 2) g.fillRect(x + i, y + 1, 1, 1);
       g.fillStyle = '#2a2530';
-      const wallSide = this.solids.some((s) => s.kind !== 'ground' && Math.abs(s.x - (x + w)) < 2) ? 1 : -1;
+      const walls = this.buildings.concat(this.solids.filter((q) => q.kind === 'wall'));
+      const wallSide = walls.some((q) => Math.abs(q.x - (x + w)) < 3) ? 1 : -1;
       const ax = wallSide > 0 ? x + w - 2 : x + 2;
       pline(g, ax, y + 3, ax - wallSide * 14, y + 3, 1);
       pline(g, ax, y + 14, ax - wallSide * 14, y + 3, 1);
@@ -599,6 +651,32 @@ const Level = {
     g.fillStyle = '#4a4252'; g.fillRect(s.x, s.y + s.h - 2, s.w, 2);
   },
 
+  paintCover(g, s) {
+    const { x, y, w, h } = s;
+    // dark outline so it reads against any backdrop
+    g.fillStyle = '#0b0910'; g.fillRect(x - 1, y + 2, w + 2, h - 2); g.fillRect(x + 2, y - 1, w - 4, 4);
+    // jersey profile: narrow top, flared base
+    g.fillStyle = '#9a94a6'; g.fillRect(x + 3, y, w - 6, 6);
+    g.fillStyle = '#8a8496'; g.fillRect(x + 1, y + 5, w - 2, 5);
+    g.fillStyle = '#7a7486'; g.fillRect(x, y + 10, w, h - 10);
+    g.fillStyle = '#d6d0e0'; g.fillRect(x + 3, y, w - 6, 1);
+    g.fillStyle = '#b8b2c4'; g.fillRect(x + 1, y + 5, 2, 1); g.fillRect(x + w - 3, y + 5, 2, 1);
+    // hazard band
+    for (let i = 0; i < w; i++) {
+      for (let j = 0; j < 4; j++) {
+        g.fillStyle = ((i + j) >> 2) % 2 ? '#f0c030' : '#1a1418';
+        g.fillRect(x + i, y + 10 + j, 1, 1);
+      }
+    }
+    g.fillStyle = '#ffe070'; g.fillRect(x, y + 10, w, 1);
+    // reflectors and a chipped corner
+    g.fillStyle = '#ff3048'; g.fillRect(x + 4, y + 7, 2, 1); g.fillRect(x + w - 6, y + 7, 2, 1);
+    g.fillStyle = '#5a5466'; g.fillRect(x, y + h - 2, w, 2);
+    g.fillStyle = '#3a3442'; g.fillRect(x + w - 5, y + 1, 2, 2);
+    // beacon housing
+    g.fillStyle = '#2a2430'; g.fillRect(x + w / 2 - 2, y - 3, 4, 3);
+  },
+
   // ---------- per-frame drawing ----------
   drawBackground(ctx, cx, cy, t) {
     ctx.drawImage(this.layers.sky, 0, 0);
@@ -663,7 +741,23 @@ const Level = {
       if (Math.random() < 0.3) FX.embers(f.x, f.y - 16, 1);
     }
   },
+  // Cover beacons sit on top of the lighting so the barriers stay easy to spot.
+  drawEmissive(ctx, cx, cy, t) {
+    for (const s of this.covers) {
+      const x = Math.round(s.x + s.w / 2 - cx), y = Math.round(s.y - cy);
+      if (x < -20 || x > VIEW_W + 20 || y < -20 || y > VIEW_H + 20) continue;
+      const on = Math.sin(t * 5 + s.x * 0.01) > -0.2;
+      ctx.fillStyle = on ? '#ffb030' : '#6a4010'; ctx.fillRect(x - 1, y - 4, 2, 2);
+      if (on) { ctx.fillStyle = '#fff0b0'; ctx.fillRect(x - 1, y - 4, 1, 1); }
+      ctx.fillStyle = '#ffe070';
+      for (let i = 0; i < s.w; i += 2) ctx.fillRect(Math.round(s.x - cx) + i, y + 10, 1, 1);
+    }
+  },
   addLights(cx, cy, t) {
+    for (const s of this.covers) {
+      const on = Math.sin(t * 5 + s.x * 0.01) > -0.2;
+      FX.frameLight(s.x + s.w / 2, s.y + 6, 34, '#ffc060', on ? 0.6 : 0.35);
+    }
     for (const l of this.lamps) {
       const on = !l.flick || Math.sin(t * 13 + l.x) > -0.6 || Math.random() < 0.5;
       if (!on) continue;

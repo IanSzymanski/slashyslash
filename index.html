@@ -21,8 +21,10 @@
         <p class="tag">Sector 9 went dark three winters ago. The scrap gangs moved in. You still have a blade.</p>
       </div>
       <nav class="stack">
-        <button type="button" id="btn-demo" data-act="demo">Wave Demo <small>6 waves</small></button>
+        <button type="button" id="btn-demo" data-act="demo">Wave Demo <small>6 waves + rival</small></button>
         <button type="button" id="btn-endless" data-act="endless">Endless Survival <small>no limit</small></button>
+        <button type="button" id="btn-boss" data-act="boss">Rival Fight <small>AEGIS-07</small></button>
+        <button type="button" id="btn-duel" data-act="duel">Melee Duel <small>test: blade phase, full HP</small></button>
         <button type="button" id="btn-howto" data-act="howto">How to Play</button>
         <button type="button" id="btn-settings" data-act="settings">Settings</button>
       </nav>
@@ -58,14 +60,18 @@
       <div class="scroll">
         <table id="howto-table" class="keys"></table>
         <ul class="tips">
-          <li>Shield soaks damage first and refills after 3 seconds without being hit. Tether shots spend 15 shield, so it is both armour and fuel.</li>
+          <li>Your shield (100) soaks damage first and refills after 3 seconds without being hit. The parry stance and each tether shot cost 15 shield, so it is armour and fuel at once.</li>
           <li>When your shield breaks, the overflow is ignored and you get a moment of invulnerability.</li>
-          <li>A yellow <b>!</b> means an attack is winding up. Tap sheathe as it lands to parry, then release for a counter that chains lightning to nearby enemies. Parried bolts fly back where you aim.</li>
-          <li>Holding sheathe longer charges the draw. Past about half charge, everything you cut freezes for a beat before it splits.</li>
+          <li>A yellow <b>!</b> means an attack is winding up. A star-shaped glint flashes on the weapon just before a melee hit lands: press parry when you see it. A successful parry refunds the shield, and releasing the key fires a counter that chains lightning to nearby enemies. Parried bolts fly back where you aim. A missed parry does nothing and the stance goes on cooldown.</li>
+          <li>Click during a dash, or right after one, for a dash slash along the cursor line.</li>
+          <li>Click while sliding to drag the blade through the street and spray rubble ahead of you.</li>
           <li>Plunge from higher up for a wider, harder shockwave. Slashing in the air keeps you aloft.</li>
-          <li>Tethered enemies take 25% more damage. Yank one into your combo, or zip in and land a tether strike. Brutes are too heavy to yank, so the tether pulls you instead.</li>
-          <li>Red barrels explode. Yank one into a crowd.</li>
-          <li>Kills charge the Sawblade. While it runs you cannot be hurt, the tether is free with no range limit, and slash lunges toward the cursor.</li>
+          <li>Buildings are scenery: run through them and climb their roofs and balconies. Hold crouch on a platform to drop through it.</li>
+          <li>Striped concrete barriers with amber beacons are cover. They stop bolts, beams and ground shockwaves. Run into one to vault it; hold crouch to stay behind it.</li>
+          <li>The tether never pulls enemies. Tap it to fling yourself at the target, hold it to zip in for a tether strike. It grabs barrels instead: hold to swing them on the line, release to throw at the cursor. Tethered enemies take 25% more damage.</li>
+          <li>AEGIS-07 is shielded. It charges a pulse grenade, previews the arc, and lobs it. The grenade explodes the moment it touches anything; the ring on the ground shows the blast. Getting caught knocks your shield out for six seconds. Tether it in flight: time slows, you reel in and slash it toward the cursor. A grenade slashed back into the rival breaks its shield and stuns it. Parrying a grenade only smothers it, and slashing one without the tether sets it off in your face.</li>
+          <li>At half health AEGIS-07 blasts you away and enrages. It drops its shield and guns for good and fights in blade combos. Parry one of its swings and it guards: your counter gets parried and it ripostes. Parry the riposte to stagger it.</li>
+          <li>Kills charge the Sawblade: invulnerable, free tether with no range limit, and slash lunges toward the cursor. Hold the tether on an enemy to grind it with damage that keeps climbing.</li>
         </ul>
       </div>
     </section>
@@ -94,6 +100,7 @@
 <script src="js/player.js"></script>
 <script src="js/ultimates.js"></script>
 <script src="js/enemies.js"></script>
+<script src="js/rival.js"></script>
 <script src="js/waves.js"></script>
 <script src="js/render.js"></script>
 <script src="js/ui.js"></script>

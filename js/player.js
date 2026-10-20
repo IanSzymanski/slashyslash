@@ -10,15 +10,19 @@ const PC = {
   DASH_SPEED: 480, DASH_TIME: 0.14, DASH_IFRAMES: 0.3, DASH_RECHARGE: 1.0, DASH_CHARGES: 2,
   TETHER_RANGE: 230, TETHER_COST: 15, TETHER_SPEED: 1150, ZIP_SPEED: 480,
   MAX_HP: 100, MAX_SHIELD: 100, SHIELD_DELAY: 3.0, SHIELD_RATE: 38,
+  PARRY_COST: 15, PARRY_CD: 0.8, PARRY_CD_HIT: 0.25, STANCE_MAX: 0.9, DROP_HOLD: 0.16, DASH_ATTACK_WINDOW: 0.14,
 };
 
 const SWINGS = {
-  0: { dur: 0.24, sweep: 0.06, act0: 0, act1: 0.1, span: 2.7, r: 44, thick: 12, dmg: 22, knock: 220, hitstop: 0.05, shake: 0.15, fade: 0.16 },
   1: { dur: 0.22, sweep: 0.075, act0: 0, act1: 0.11, span: 2.7, r: 36, thick: 10, dmg: 14, knock: 120, hitstop: 0.035, shake: 0.08, fade: 0.14 },
   2: { dur: 0.22, sweep: 0.075, act0: 0, act1: 0.11, span: 2.7, r: 36, thick: 10, dmg: 14, knock: 120, hitstop: 0.035, shake: 0.08, fade: 0.14 },
   3: { dur: 0.38, sweep: 0.12, act0: 0.03, act1: 0.18, span: 4.1, r: 54, thick: 17, dmg: 32, knock: 340, hitstop: 0.08, shake: 0.28, fade: 0.22, lunge: 210 },
-  // slide attack: full spin
-  4: { dur: 0.3, sweep: 0.15, act0: 0, act1: 0.18, span: TAU - 0.02, r: 34, thick: 9, dmg: 18, knock: 180, hitstop: 0.04, shake: 0.12, fade: 0.14 },
+};
+
+// Drawn slashes: the dash attack, and the counter released after a parry.
+const IAIDO = {
+  dash: { len: 82, dmg: 26, arcR: 46, span: 3.0, thick: 12, lineW: 3, delayed: false, empowered: false, chain: false, post: 0.16, flash: 0.08, shake: 0.18 },
+  counter: { len: 165, dmg: 135, arcR: 115, span: 4.4, thick: 26, lineW: 7, delayed: true, empowered: true, chain: true, post: 0.32, flash: 0.35, shake: 0.6 },
 };
 
 const PCOL = {
@@ -35,12 +39,13 @@ class Player {
     this.dashCharges = PC.DASH_CHARGES; this.dashRecharge = 0; this.dashT = 0; this.dashVX = 0; this.dashVY = 0;
     this.iframes = 0; this.hurtT = 0;
     this.coyote = 0; this.jumpBuf = 0; this.airJumps = 1; this.jumpCuttable = false;
-    this.crouching = false; this.sliding = false; this.slideT = 0; this.lastCrouchTap = -9; this.dropT = 0;
+    this.crouching = false; this.sliding = false; this.slideT = 0; this.dropHoldT = 0; this.dropT = 0;
     this.wallDir = 0; this.wallSliding = false; this.wallJumpLock = 0;
     this.spinT = 0; this.spinDur = 0; this.bulletT = 0;
     this.attack = null; this.comboStage = 0; this.comboTimer = 0; this.attackQueued = false; this.attackCD = 0;
     this.plunge = null; this.landLag = 0;
-    this.sheathe = null; this.parryLock = 0; this.postPose = 0; this.iaido = null;
+    this.shieldOffT = 0;
+    this.sheathe = null; this.parryCD = 0; this.parryFlash = 0; this.postPose = 0; this.iaido = null; this.dashEndT = 0;
     this.tether = null;
     this.ult = null; this.ultCharge = 0; this.ultHold = 0; this.ultReadyPlayed = false;
     this.dead = false; this.deadT = 0; this.blinkT = 0; this.hoverAvail = true;
@@ -67,13 +72,13 @@ class Player {
   // ================= update =================
   update(dt) {
     this.animT += dt;
-    const m = Game.mouseWorld();
+    const C = Game.cine, m = C && C.focus && Input.locked ? { x: C.focus.x, y: C.focus.cy } : Game.mouseWorld();
     this.aimX = m.x; this.aimY = m.y;
     const [cx, cy] = this.chest();
     this.aimAngle = Math.atan2(m.y - cy, m.x - cx);
 
     const dec = (k) => { if (this[k] > 0) this[k] = Math.max(0, this[k] - dt); };
-    for (const k of ['iframes', 'hurtT', 'coyote', 'jumpBuf', 'attackCD', 'landLag', 'postPose', 'parryLock', 'dropT', 'wallJumpLock', 'landSquash', 'shieldFlash', 'spinT', 'bulletT', 'blinkT']) dec(k);
+    for (const k of ['iframes', 'hurtT', 'coyote', 'jumpBuf', 'attackCD', 'landLag', 'postPose', 'parryCD', 'parryFlash', 'dashEndT', 'shieldOffT', 'dropT', 'wallJumpLock', 'landSquash', 'shieldFlash', 'spinT', 'bulletT', 'blinkT']) dec(k);
     if (this.onGround) this.hoverAvail = true;
     if (this.dropT <= 0) this.dropThrough = false;
     if (this.dashCharges < PC.DASH_CHARGES) {
@@ -81,7 +86,7 @@ class Player {
       if (this.dashRecharge >= PC.DASH_RECHARGE) { this.dashCharges++; this.dashRecharge = 0; }
     }
     this.shieldDelay -= dt;
-    if (this.shieldDelay <= 0 && this.shield < PC.MAX_SHIELD && !this.dead) {
+    if (this.shieldDelay <= 0 && this.shieldOffT <= 0 && this.shield < PC.MAX_SHIELD && !this.dead) {
       if (!this.regenOn) { this.regenOn = true; Sound.play('shieldRegen'); }
       this.shield = Math.min(PC.MAX_SHIELD, this.shield + PC.SHIELD_RATE * dt);
     } else if (this.shieldDelay > 0) this.regenOn = false;
@@ -106,14 +111,16 @@ class Player {
     if (Input.wasPressed('jump')) this.jumpBuf = PC.JUMP_BUF;
     if (Input.wasReleased('jump') && this.vy < 0 && this.jumpCuttable) { this.vy *= PC.JUMP_CUT; this.jumpCuttable = false; }
 
-    const wasGround = this.onGround, preVy = this.vy;
+    const wasGround = this.onGround, preVy = this.vy, preVx = this.vx;
     if (this.dashT > 0) this.moveDash(dt);
     else if (this.iaido) this.moveIaido(dt);
+    else if (this.rebounding()) this.moveRebound(dt);
     else if (this.zipping()) this.moveZip(dt);
     else if (this.plunge) this.movePlunge(dt, mx);
     else this.moveNormal(dt, mx, up, down);
 
-    const col = Level.moveBody(this, dt, { step: this.plunge ? 0 : 11 });
+    const flash = this.dashT > 0 || !!this.iaido || this.zipping() || this.rebounding();
+    const col = Level.moveBody(this, dt, { step: this.plunge ? 0 : 11, ghostCover: flash });
     if (col.ground && !wasGround) this.onLand(preVy);
     if (!col.ground && wasGround && this.vy >= 0) this.coyote = PC.COYOTE;
     if (this.zipping() && (col.wallL || col.wallR || col.ceil || col.ground) && this.tether.kind === 'world') {
@@ -121,6 +128,7 @@ class Player {
       if (Math.hypot(T.x - this.x, T.y - this.cy) < 26) this.arriveZip();
     }
     if (this.iaido && (col.wallL || col.wallR)) this.iaido.t = this.iaido.dur;
+    if ((col.wallL || col.wallR) && mx && !down) this.tryVault(col.wallR ? 1 : -1, mx, preVx);
 
     this.updateAttack(dt);
     this.updateScarf(dt);
@@ -132,18 +140,31 @@ class Player {
     }
   }
 
+  // Running into low cover hops you over it; hold crouch to stay behind it.
+  tryVault(dir, mx, preVx) {
+    if (mx !== dir || !this.onGround || this.attack || this.sheathe || this.dashT > 0 || this.iaido || this.plunge || this.zipping()) return;
+    if (!Level.coverAhead(this, dir)) return;
+    if (this.sliding || this.crouching) { this.sliding = false; this.crouching = false; if (!this.setHeight(PC.H)) return; }
+    this.vy = -250; this.vx = dir * Math.max(Math.abs(preVx), 130);
+    this.onGround = false; this.coyote = 0; this.jumpCuttable = false;
+    this.spinT = 0.34; this.spinDur = 0.34;
+    Sound.play('jump');
+    FX.dust(this.x + dir * 4, this.y, 4, { smax: 40, rise: 4 });
+  }
   moveNormal(dt, mx, up, down) {
     // crouch / slide on the ground
     if (this.onGround) {
       this.airJumps = 1;
-      if (Input.wasPressed('crouch')) {
-        if (S.controls.dropDoubleTap && Game.time - this.lastCrouchTap < 0.28 && Level.onOneWay(this)) {
+      if (Input.wasPressed('crouch') && Math.abs(this.vx) > PC.SLIDE_MIN && !this.sliding && !this.attack && !this.sheathe) this.startSlide();
+      // holding down on a one-way platform drops through it
+      if (down && !this.sliding && S.controls.dropHold && Level.onOneWay(this)) {
+        this.dropHoldT += dt;
+        if (this.dropHoldT >= PC.DROP_HOLD) {
+          this.dropHoldT = 0;
           this.dropT = 0.22; this.dropThrough = true; this.onGround = false; this.vy = 40;
           this.crouching = false; this.setHeight(PC.H);
         }
-        this.lastCrouchTap = Game.time;
-        if (!this.dropThrough && Math.abs(this.vx) > PC.SLIDE_MIN && !this.sliding && !this.attack && !this.sheathe) this.startSlide();
-      }
+      } else this.dropHoldT = 0;
     }
     if (this.sliding) {
       this.slideT -= dt;
@@ -178,7 +199,7 @@ class Player {
         this.vx = approach(this.vx, 0, fr * dt);
       }
     }
-    const busy = this.attack || this.sheathe || this.ultHold > 0 || (this.tether && this.tether.phase === 'fly');
+    const busy = this.attack || this.sheathe || this.ultHold > 0 || (this.tether && (this.tether.phase === 'fly' || this.tether.mode === 'tow'));
     if (busy) this.facing = Math.cos(this.aimAngle) >= 0 ? 1 : -1;
     else if (mx !== 0 && !this.sliding) this.facing = mx;
     else if (this.onGround && !this.sliding && Math.abs(this.vx) < 20 && this.postPose <= 0) this.facing = Math.cos(this.aimAngle) >= 0 ? 1 : -1;
@@ -296,6 +317,7 @@ class Player {
     this.vx = this.dashVX; this.vy = this.dashVY;
     if (this.dashT <= 0) {
       this.dashT = 0;
+      this.dashEndT = PC.DASH_ATTACK_WINDOW;
       this.vx *= 0.55;
       this.vy = this.dashVY < 0 ? this.dashVY * 0.45 : this.dashVY * 0.3;
     }
@@ -304,19 +326,25 @@ class Player {
   // ---------- melee ----------
   onAttackPressed(down) {
     if (this.sheathe || this.iaido || this.ultHold > 0) return;
-    if (!this.onGround && down && !this.plunge && this.dashT <= 0) { this.startPlunge(); return; }
+    if (this.dashT > 0 || this.dashEndT > 0) { this.dashAttack(); return; }
+    if (!this.onGround && down && !this.plunge) { this.startPlunge(); return; }
     if (this.plunge) return;
     if (this.attack) { if (this.attack.stage < 3) this.attackQueued = true; return; }
     if (this.attackCD > 0) { this.attackQueued = true; return; }
-    if (this.sliding && this.onGround) { this.startSwing(4); return; }
+    if (this.sliding && this.onGround) { this.startGroundCut(); return; }
     this.startSwing(this.comboTimer > 0 && this.comboStage < 3 ? this.comboStage + 1 : 1);
+  }
+  // Attacking during (or right after) a dash turns it into a drawn slash along the cursor line.
+  dashAttack() {
+    this.dashT = 0; this.dashEndT = 0;
+    this.attack = null; this.attackQueued = false;
+    this.startIaido(IAIDO.dash);
   }
   startSwing(stage) {
     const d = SWINGS[stage];
-    const spin = stage === 4;
-    const ang = spin ? -Math.PI / 2 : this.aimAngle, fdir = spin ? this.facing : Math.cos(ang) >= 0 ? 1 : -1;
+    const ang = this.aimAngle, fdir = Math.cos(ang) >= 0 ? 1 : -1;
     this.facing = fdir;
-    if (this.sliding && !spin) { this.sliding = false; if (!this.setHeight(PC.H)) { this.crouching = true; this.setHeight(PC.CROUCH_H); } }
+    if (this.sliding) { this.sliding = false; if (!this.setHeight(PC.H)) { this.crouching = true; this.setHeight(PC.CROUCH_H); } }
     const dir = stage === 2 ? -fdir : fdir;
     this.attack = Object.assign({ stage, t: 0, ang, dir, hit: new Set() }, d);
     this.comboStage = stage; this.attackQueued = false; this.postPose = 0;
@@ -325,15 +353,53 @@ class Player {
       x: this.x, y: cy, follow: this, ox: 0, oy: cy - this.y, r: d.r, span: d.span, ang, dir,
       sweep: d.sweep, dur: d.sweep + d.fade, thick: d.thick, pal: PALETTES.red, trail: stage === 3 ? 0.95 : 0.85,
     });
-    Sound.play('swing', { stage: spin ? 3 : stage });
-    if (spin) { this.slideT = Math.max(this.slideT, 0.3); }
-    else if (d.lunge) {
+    Sound.play('swing', { stage });
+    if (d.lunge) {
       this.vx = this.vx * 0.3 + Math.cos(ang) * d.lunge;
       if (!this.onGround) this.vy = Math.min(this.vy, Math.sin(ang) * d.lunge * 0.6);
       Game.shake(0.06);
-    } else if (this.onGround && !spin) this.vx += fdir * 40;
+    } else if (this.onGround) this.vx += fdir * 40;
     if (!this.onGround && this.vy > 0) this.vy *= 0.4;
     FX.light(this.x + Math.cos(ang) * d.r * 0.6, cy + Math.sin(ang) * d.r * 0.6, d.r * 1.6, '#ff2040', 0.9, d.sweep + d.fade);
+  }
+  // Slide attack: the blade bites into the street and sprays rubble ahead.
+  startGroundCut() {
+    const f = this.facing;
+    this.attack = { stage: 4, groundCut: true, t: 0, dur: 0.36, act0: 0.02, act1: 0.22, ang: f > 0 ? 0.3 : Math.PI - 0.3, dir: f, span: 0, sweep: 0.08, hit: new Set(), rocks: false };
+    this.attackQueued = false; this.comboStage = 0;
+    this.slideT = Math.max(this.slideT, 0.32);
+    this.vx = f * Math.max(Math.abs(this.vx), 170);
+    Sound.play('groundCut');
+  }
+  updateGroundCut(a) {
+    const f = this.facing, tipX = this.x + f * 13, tipY = this.y - 1;
+    if (a.t < 0.26) {
+      FX.sparks(tipX, tipY, 2, f > 0 ? Math.PI + 0.4 : -0.4, 0.8, 60, 200, { life: 0.6 });
+      if (Math.random() < 0.5) FX.dust(tipX, this.y, 1, { smax: 30, c: '#6a5a5a' });
+    }
+    if (a.t >= a.act0 && a.t <= a.act1) {
+      for (const e of Game.enemies) {
+        if (e.dead || e.spawning || a.hit.has(e)) continue;
+        if (aabb(f > 0 ? this.x : this.x - 28, this.y - 12, 28, 12, e.x - e.w / 2, e.y - e.h, e.w, e.h)) {
+          a.hit.add(e);
+          hurtEnemy(e, 12, { kx: f * 160, ky: -170, cause: 'slash', angle: f > 0 ? -0.3 : Math.PI + 0.3, stagger: 0.4, hitstop: 0.03 });
+        }
+      }
+    }
+    if (!a.rocks && a.t >= 0.05) {
+      a.rocks = true;
+      const ox = this.x + f * 15, oy = this.y - 3;
+      for (let i = 0; i < 10; i++) {
+        const ang = (f > 0 ? 0 : Math.PI) - f * rand(0.12, 0.95), sp = rand(170, 330);
+        Game.projectiles.push(new Rock(ox + rand(-3, 3), oy - rand(0, 3), Math.cos(ang) * sp, Math.sin(ang) * sp, 7));
+      }
+      FX.debris(ox, oy, 12, ['#4a4252', '#5c5464', '#3a3442', '#6e6678'], 200);
+      FX.dust(ox, this.y, 10, { ang: f > 0 ? -0.4 : Math.PI + 0.4, spread: 0.8, smin: 40, smax: 140, rise: 10, r1: 5 });
+      FX.sparks(ox, oy, 10, f > 0 ? -0.5 : Math.PI + 0.5, 0.9, 80, 260);
+      FX.decal('gouge', this.x + f * 2, this.y, { len: 26 * f, dur: 5 });
+      Game.shake(0.12);
+      Sound.play('rocks');
+    }
   }
   updateAttack(dt) {
     if (!this.attack) {
@@ -345,6 +411,11 @@ class Player {
     }
     const a = this.attack;
     a.t += dt;
+    if (a.groundCut) {
+      this.updateGroundCut(a);
+      if (a.t >= a.dur) { this.attack = null; this.comboStage = 0; }
+      return;
+    }
     if (a.t >= a.act0 && a.t <= a.act1) {
       const [cx, cy] = this.chest();
       const reach = a.r + 3;
@@ -369,10 +440,11 @@ class Player {
         }
       }
       for (const b of Game.projectiles) {
-        if (b.dead || !b.hostile || a.hit.has(b)) continue;
+        if (b.dead || !b.hostile || a.hit.has(b) || !(b.reflect || b.onSlash)) continue;
         const dx = b.x - cx, dy = b.y - cy;
         if (dx * dx + dy * dy < reach * reach && Math.abs(angDiff(a.ang, Math.atan2(dy, dx))) < a.span / 2) {
           a.hit.add(b);
+          if (b.onSlash) { b.onSlash(this); continue; }
           b.reflect(this.aimAngle, 1.5, 22);
           Sound.play('reflect');
         }
@@ -380,13 +452,11 @@ class Player {
       if (any && !this.onGround) { this.vy = Math.min(this.vy, -75); this.airJumps = Math.max(this.airJumps, 0); }
     }
     const cancelT = a.stage === 3 ? 0.3 : 0.13;
-    if (this.attackQueued && a.t >= cancelT && a.stage < 3) { this.startSwing(a.stage === 0 ? 2 : a.stage + 1); return; }
-    if (this.attackQueued && a.stage === 4 && a.t >= 0.2) { this.attack = null; this.attackQueued = false; this.startSwing(this.sliding ? 4 : 2); return; }
+    if (this.attackQueued && a.t >= cancelT && a.stage < 3) { this.startSwing(a.stage + 1); return; }
     if (a.t >= a.dur) {
       this.attack = null;
       this.comboTimer = 0.42;
-      if (a.stage === 3 || a.stage === 4) { this.comboStage = 0; this.attackCD = a.stage === 3 ? 0.1 : 0; }
-      if (a.stage === 0) this.comboStage = 1;
+      if (a.stage === 3) { this.comboStage = 0; this.attackCD = 0.1; }
     }
   }
 
@@ -453,36 +523,44 @@ class Player {
     this.landLag = 0.14; this.airJumps = 1;
   }
 
-  // ---------- sheathe / parry / iaido ----------
+  // ---------- parry stance / iaido ----------
+  // E opens a parry stance that costs shield. It only attacks after a successful parry.
   updateSheathe(dt) {
-    if (Input.wasPressed('sheathe') && !this.sheathe && !this.iaido && this.dashT <= 0 && !this.plunge && this.ultHold <= 0) {
-      this.attack = null; this.attackQueued = false;
-      if (this.sliding) { this.sliding = false; if (!this.setHeight(PC.H)) { this.crouching = true; this.setHeight(PC.CROUCH_H); } }
-      this.sheathe = { t: 0, charge: 0, full: false, empowered: false, parryUntil: this.parryLock > 0 ? -1 : S.gameplay.parryWindow, hover: this.hoverAvail ? 1.0 : 0, parried: 0, releaseQueued: false };
-      if (!this.onGround) this.hoverAvail = false;
-      Sound.play('sheathe');
-    }
+    if (Input.wasPressed('sheathe') && !this.sheathe && !this.iaido && this.dashT <= 0 && !this.plunge && this.ultHold <= 0) this.tryStance();
     const s = this.sheathe;
     if (!s) return;
     s.t += dt;
-    if (s.t > 0.12 && !this.loops.charge && !s.releaseQueued) this.loops.charge = Sound.loop('charge');
-    s.charge = s.empowered ? 1 : clamp((s.t - 0.12) / 0.85, 0, 1);
-    if (this.loops.charge) this.loops.charge.set(s.charge);
-    if (s.charge >= 1 && !s.full) {
-      s.full = true;
-      Sound.play('chargeFull');
-      FX.ring(this.x, this.y - 9, 3, 22, 0.25, { w: 1 });
-      FX.flash('#ff2040', 0.1);
-    }
     const sx = this.x - this.facing * 5, sy = this.y - 7;
-    if (Math.random() < 0.15 + s.charge * 0.75) FX.elec(sx, sy, 5 + s.charge * 11, 1, s.empowered ? { outer: '#ffb040', core: '#ffffff' } : {});
-    if (s.charge > 0.5 && Math.random() < s.charge * 0.5) FX.sparks(sx + rand(-6, 6), sy + rand(-6, 4), 1, -Math.PI / 2, 1.5, 20, 60, { g: -60, life: 0.8 });
-    if (!Input.isDown('sheathe') || s.releaseQueued) this.releaseSheathe();
+    if (s.empowered) {
+      if (Math.random() < 0.8) FX.elec(sx, sy, 14, 1, { outer: '#ffb040', core: '#ffffff' });
+      if (Math.random() < 0.4) FX.sparks(sx + rand(-6, 6), sy + rand(-6, 4), 1, -Math.PI / 2, 1.5, 20, 60, { g: -60, life: 0.8, c1: '#ffd070' });
+    } else if (s.t <= s.parryUntil && Math.random() < 0.5) FX.elec(sx, sy, 7, 1);
+    const maxT = s.empowered ? s.parriedAt + 1.0 : PC.STANCE_MAX;
+    if (!Input.isDown('sheathe') || s.releaseQueued || s.t >= maxT) this.releaseSheathe();
+  }
+  tryStance() {
+    if (this.parryCD > 0) { Sound.play('denied'); this.parryFlash = 0.35; return; }
+    if (!S.gameplay.invincible && this.shield < PC.PARRY_COST) {
+      Sound.play('noShield');
+      this.shieldFlash = 0.5;
+      FX.text('NO SHIELD', this.x, this.y - 30, { c: '#5ad8ff', always: true, dur: 0.6, vy: -20 });
+      return;
+    }
+    this.shield = Math.max(0, this.shield - PC.PARRY_COST);
+    this.shieldDelay = Math.max(this.shieldDelay, 1.4); this.regenOn = false;
+    this.attack = null; this.attackQueued = false;
+    if (this.sliding) { this.sliding = false; if (!this.setHeight(PC.H)) { this.crouching = true; this.setHeight(PC.CROUCH_H); } }
+    this.sheathe = { t: 0, charge: 0, empowered: false, parryUntil: S.gameplay.parryWindow, hover: this.hoverAvail ? 1.0 : 0, parried: 0, parriedAt: 0, refunded: false, releaseQueued: false };
+    if (!this.onGround) this.hoverAvail = false;
+    Sound.play('sheathe');
+    const [cx, cy] = this.chest();
+    FX.ring(cx, cy, 3, 12, 0.15, { w: 1, c: '#ffe0a0', core: '#ffffff' });
   }
   parryActive() { return !!this.sheathe && this.sheathe.t <= this.sheathe.parryUntil; }
   cancelSheathe() {
     this.stopLoop('charge');
     this.sheathe = null;
+    this.parryCD = Math.max(this.parryCD, PC.PARRY_CD);
   }
   releaseSheathe() {
     const s = this.sheathe;
@@ -490,18 +568,23 @@ class Player {
     if (s.t < s.parryUntil && !s.parried) { s.releaseQueued = true; return; }
     this.stopLoop('charge');
     this.sheathe = null;
-    if (!s.parried && s.t < 0.35) this.parryLock = 0.35;
-    if (s.empowered) this.startIaido(1, true);
-    else if (s.charge < 0.2) this.quickDraw();
-    else this.startIaido(s.charge, false);
-  }
-  quickDraw() {
-    this.startSwing(0);
-    Sound.play('quickdraw');
+    if (s.empowered) { this.parryCD = PC.PARRY_CD_HIT; this.startIaido(IAIDO.counter); }
+    else { this.parryCD = PC.PARRY_CD; Sound.play('unsheathe'); }
   }
   doParry(h) {
     const s = this.sheathe;
-    s.parried++; s.empowered = true; s.parryUntil = s.t + 0.32;
+    s.parried++;
+    if (!s.empowered) {
+      s.empowered = true; s.parriedAt = s.t; s.charge = 1;
+      this.loops.charge = Sound.loop('charge');
+      this.loops.charge.set(1);
+    }
+    s.parryUntil = s.t + 0.32;
+    if (!s.refunded && this.shieldOffT <= 0) {
+      s.refunded = true;
+      this.shield = Math.min(PC.MAX_SHIELD, this.shield + PC.PARRY_COST);
+      FX.text('+' + PC.PARRY_COST + ' SHIELD', this.x, this.y - 40, { c: '#5ad8ff', always: true, dur: 0.8, vy: -18 });
+    }
     Sound.play('parry');
     Game.slowmo(0.22, 0.42);
     Game.hitstop(0.07);
@@ -519,9 +602,8 @@ class Player {
     this.iframes = Math.max(this.iframes, 0.2);
     Game.stats.parries++;
   }
-  startIaido(charge, empowered) {
-    let ang = this.aimAngle;
-    let len = empowered ? 165 : lerp(55, 140, charge);
+  startIaido(cfg) {
+    let ang = this.aimAngle, len = cfg.len;
     const [sx, sy] = this.chest();
     // A tethered enemy pulls the draw straight to it.
     const T = this.tether;
@@ -533,20 +615,21 @@ class Player {
     }
     if (this.tether) this.releaseTether();
     const dx = Math.cos(ang), dy = Math.sin(ang);
-    const t = Level.raycast(sx, sy, sx + dx * (len + 8), sy + dy * (len + 8));
+    const t = Level.raycastBody(sx, sy, sx + dx * (len + 8), sy + dy * (len + 8));
     len = Math.max(0, (len + 8) * t - 8);
     this.facing = dx >= 0 ? 1 : -1;
-    this.iaido = { t: 0, dur: 0.09, ang, charge, empowered, len, sx, sy, hit: new Set(), vx: (dx * len) / 0.09, vy: (dy * len) / 0.09 };
-    this.iframes = Math.max(this.iframes, 0.5);
+    this.iaido = { t: 0, dur: 0.09, ang, cfg, len, sx, sy, hit: new Set(), vx: (dx * len) / 0.09, vy: (dy * len) / 0.09 };
+    this.iframes = Math.max(this.iframes, cfg.empowered ? 0.5 : 0.3);
     if (this.crouching && this.canStand()) { this.crouching = false; this.setHeight(PC.H); }
-    const pal = empowered ? PALETTES.gold : PALETTES.red;
-    FX.slashLine(sx, sy, sx + dx * len, sy + dy * len, { w: empowered ? 7 : 3 + charge * 3, dur: 0.45, pal });
-    Sound.play('iaido', { power: charge, empowered });
-    Game.shake(0.3 + charge * 0.3 + (empowered ? 0.2 : 0));
-    FX.flash(empowered ? '#fff4d0' : '#ff3048', empowered ? 0.35 : 0.1 + charge * 0.12);
-    Game.hitstop(0.045);
-    FX.light(sx, sy, 90, empowered ? '#ffe0a0' : '#ff3048', 1, 0.3);
-    if (empowered) {
+    const pal = cfg.empowered ? PALETTES.gold : PALETTES.red;
+    FX.slashLine(sx, sy, sx + dx * len, sy + dy * len, { w: cfg.lineW, dur: cfg.empowered ? 0.45 : 0.3, pal });
+    if (cfg.empowered) Sound.play('iaido', { power: 1, empowered: true });
+    else Sound.play('quickdraw');
+    Game.shake(cfg.shake);
+    FX.flash(cfg.empowered ? '#fff4d0' : '#ff3048', cfg.flash);
+    Game.hitstop(cfg.empowered ? 0.045 : 0.02);
+    FX.light(sx, sy, cfg.empowered ? 90 : 50, cfg.empowered ? '#ffe0a0' : '#ff3048', 1, 0.3);
+    if (cfg.empowered) {
       Game.announce('COUNTER', null, '#ffd070', 0.9);
       Game.slowmo(0.3, 0.3);
     }
@@ -556,7 +639,7 @@ class Player {
     I.t += dt;
     this.vx = I.vx; this.vy = I.vy;
     this.ghostT -= dt;
-    if (this.ghostT <= 0) { this.ghostT = 0.012; this.makeGhost(I.empowered ? '#ffd070' : '#ff2a48', 0.3, 0.7); }
+    if (this.ghostT <= 0) { this.ghostT = 0.012; this.makeGhost(I.cfg.empowered ? '#ffd070' : '#ff2a48', 0.3, 0.7); }
     const [cx, cy] = this.chest();
     for (const e of Game.enemies) {
       if (e.dead || e.spawning || I.hit.has(e)) continue;
@@ -565,55 +648,56 @@ class Player {
     if (I.t >= I.dur) this.finishIaido();
   }
   finishIaido() {
-    const I = this.iaido;
+    const I = this.iaido, cfg = I.cfg;
     this.iaido = null;
     this.vx *= 0.15; this.vy = Math.min(this.vy * 0.15, 0);
     const [cx, cy] = this.chest();
-    const r = I.empowered ? 115 : lerp(52, 96, I.charge);
-    const span = I.empowered ? 4.4 : 3.6;
     const dir = Math.cos(I.ang) >= 0 ? 1 : -1;
-    FX.swoosh({ x: cx, y: cy, r, span, ang: I.ang, dir, sweep: 0.08, dur: 0.38, thick: I.empowered ? 26 : 14 + I.charge * 10, pal: I.empowered ? PALETTES.gold : PALETTES.red, trail: 1 });
+    FX.swoosh({ x: cx, y: cy, r: cfg.arcR, span: cfg.span, ang: I.ang, dir, sweep: 0.08, dur: cfg.empowered ? 0.38 : 0.26, thick: cfg.thick, pal: cfg.empowered ? PALETTES.gold : PALETTES.red, trail: 1 });
     for (const e of Game.enemies) {
       if (e.dead || e.spawning || I.hit.has(e)) continue;
-      if (sectorRect(cx, cy, r, I.ang, span, e.x - e.w / 2, e.y - e.h, e.w, e.h)) { I.hit.add(e); this.iaidoMark(e); }
+      if (sectorRect(cx, cy, cfg.arcR, I.ang, cfg.span, e.x - e.w / 2, e.y - e.h, e.w, e.h)) { I.hit.add(e); this.iaidoMark(e); }
     }
     for (const pr of Game.props) {
-      if (!pr.dead && sectorRect(cx, cy, r, I.ang, span, pr.x - pr.w / 2, pr.y - pr.h, pr.w, pr.h)) pr.hit(60, { kx: Math.cos(I.ang) * 260, ky: -150, heavy: true });
+      if (!pr.dead && sectorRect(cx, cy, cfg.arcR, I.ang, cfg.span, pr.x - pr.w / 2, pr.y - pr.h, pr.w, pr.h)) pr.hit(60, { kx: Math.cos(I.ang) * 260, ky: -150, heavy: true });
     }
     for (const b of Game.projectiles) {
-      if (!b.dead && b.hostile && dist(b.x, b.y, cx, cy) < r) b.reflect(I.ang, 1.6, 30);
+      if (b.dead || !b.hostile || dist(b.x, b.y, cx, cy) >= cfg.arcR) continue;
+      if (b.onSlash) b.onSlash(this);
+      else if (b.reflect) b.reflect(I.ang, 1.6, 30);
     }
-    const delayed = I.empowered || I.charge >= 0.6;
-    if (delayed && I.hit.size) {
+    if (cfg.delayed && I.hit.size) {
       Game.slowmo(0.35, 0.36);
       Game.queueCut(0.34, () => this.resolveIaido(I));
     } else this.resolveIaido(I);
-    if (I.empowered) this.chainLightning(cx, cy, I);
-    this.postPose = 0.32;
+    if (cfg.chain) this.chainLightning(cx, cy, I);
+    this.postPose = cfg.post;
     this.comboStage = 0;
   }
   iaidoMark(e) {
-    e.cutMark = 1;
+    if (e.isEnemy) e.cutMark = 1;
     FX.sparks(e.x, e.y - e.h / 2, 6, rand(0, TAU), TAU, 40, 140);
   }
   resolveIaido(I) {
-    const dmg = I.empowered ? 135 : lerp(30, 95, I.charge);
+    const cfg = I.cfg;
     let n = 0;
     for (const e of I.hit) {
       if (e.dead) continue;
       e.cutMark = 0;
       const a = rand(-0.8, 0.8) + (Math.random() < 0.5 ? 0 : Math.PI);
-      const cx = e.x, cy = e.y - e.h / 2, L = Math.max(e.w, e.h) * 0.9 + 6;
-      FX.slashLine(cx - Math.cos(a) * L, cy - Math.sin(a) * L, cx + Math.cos(a) * L, cy + Math.sin(a) * L, { w: 3, dur: 0.25, grow: 0.03, pal: I.empowered ? PALETTES.gold : PALETTES.red });
-      hurtEnemy(e, dmg, { kx: Math.cos(I.ang) * 280, ky: -180, heavy: true, cause: 'iaido', angle: a, stagger: 0.9, hitstop: 0, shake: 0, crit: true });
+      if (cfg.delayed) {
+        const cx = e.x, cy = e.y - e.h / 2, L = Math.max(e.w, e.h) * 0.9 + 6;
+        FX.slashLine(cx - Math.cos(a) * L, cy - Math.sin(a) * L, cx + Math.cos(a) * L, cy + Math.sin(a) * L, { w: 3, dur: 0.25, grow: 0.03, pal: cfg.empowered ? PALETTES.gold : PALETTES.red });
+      }
+      hurtEnemy(e, cfg.dmg, { kx: Math.cos(I.ang) * 280, ky: -180, heavy: true, cause: 'iaido', angle: a, stagger: cfg.empowered ? 0.9 : 0.45, hitstop: 0, shake: 0, crit: cfg.empowered });
       n++;
     }
-    if (n) {
+    if (n && cfg.delayed) {
       Sound.play('cut');
       Game.shake(0.25 + n * 0.05);
       Game.hitstop(0.06);
-      FX.flash(I.empowered ? '#fff6e0' : '#ffffff', 0.2);
-    }
+      FX.flash(cfg.empowered ? '#fff6e0' : '#ffffff', 0.2);
+    } else if (n) Game.hitstop(0.04);
   }
   chainLightning(cx, cy, I) {
     const targets = Game.enemies.filter((e) => !e.dead && !e.spawning && !I.hit.has(e) && dist(e.x, e.y - e.h / 2, cx, cy) < 200)
@@ -632,17 +716,18 @@ class Player {
   }
 
   // ---------- tether ----------
+  // Tap: fling yourself at the target. Hold: zip to it. Objects (barrels, pulse grenades) are grabbed,
+  // towed while held, and thrown toward the cursor on release. Enemies are never pulled.
   updateTetherInput() {
-    const fire = Input.wasPressed('tether'), yank = Input.wasPressed('yank');
-    if (!fire && !yank) return;
+    if (!Input.wasPressed('tether')) return;
     if (this.tether) {
-      if (this.tether.phase === 'attached') this.releaseTether();
+      if (this.tether.phase === 'attached' && this.tether.mode !== 'tow' && this.tether.mode !== 'rebound') this.releaseTether();
       return;
     }
     if (this.sheathe || this.iaido || this.ultHold > 0) return;
-    this.fireTether(yank && !fire ? 'yank' : null, yank && !fire ? 'yank' : 'tether');
+    this.fireTether();
   }
-  fireTether(mode, holdKey) {
+  fireTether() {
     const free = !!this.ult;
     if (!free && !S.gameplay.invincible && this.shield < PC.TETHER_COST) {
       Sound.play('noShield');
@@ -655,20 +740,35 @@ class Player {
     const a = this.aimAngle, spd = free ? 2400 : PC.TETHER_SPEED;
     this.tether = {
       phase: 'fly', x: hx, y: hy, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, dist: 0, max: free ? 4000 : PC.TETHER_RANGE,
-      target: null, kind: null, ox: 0, oy: 0, mode, holdKey, firedAt: Game.time, t: 0, spd: 0,
+      target: null, kind: null, ox: 0, oy: 0, mode: null, firedAt: Game.time, t: 0, spd: 0,
+      // a grenade near the cursor pulls the line onto it, since it moves while the line travels
+      homing: this.grenadeNearAim(free),
     };
     this.facing = Math.cos(a) >= 0 ? 1 : -1;
     Sound.play('tetherFire');
     FX.sparks(hx, hy, 4, a, 0.8, 60, 180);
   }
+  grenadeNearAim(free) {
+    const [hx, hy] = this.hand();
+    let best = null, bd = 34;
+    for (const o of Game.projectiles) {
+      if (!o.rebound || !o.tetherable) continue;
+      const d = dist(o.x, o.y, this.aimX, this.aimY);
+      if (d < bd && (free || dist(o.x, o.y, hx, hy) < PC.TETHER_RANGE + 30)) { bd = d; best = o; }
+    }
+    return best;
+  }
   releaseTether() {
     const T = this.tether;
     if (!T) return;
+    if (T.mode === 'rebound' && T.phase === 'attached') Game.endBulletTime();
     this.stopLoop('reel');
     if (T.target && T.target.tethered) T.target.tethered = false;
     T.phase = 'retract'; T.t = 0;
   }
   zipping() { return !!this.tether && this.tether.phase === 'attached' && this.tether.mode === 'zip'; }
+  grinding() { return !!this.tether && this.tether.phase === 'attached' && this.tether.mode === 'grind'; }
+  rebounding() { return !!this.tether && this.tether.phase === 'attached' && this.tether.mode === 'rebound'; }
   attachTether(target, kind) {
     const T = this.tether;
     T.phase = 'attached'; T.t = 0; T.target = target; T.kind = kind;
@@ -677,7 +777,24 @@ class Player {
     FX.sparks(T.x, T.y, 8, rand(0, TAU), TAU, 40, 150);
     FX.elec(T.x, T.y, 10, 3);
     FX.light(T.x, T.y, 30, '#ff3048', 0.9, 0.2);
-    if (kind === 'enemy') { hurtEnemy(target, 4, { cause: 'tether', stagger: 0.25, noKnock: true, hitstop: 0.02, angle: 0 }); }
+    if (kind === 'grenade') { this.beginRebound(target); return; }
+    if (kind === 'object') {
+      T.mode = 'tow';
+      if (target.grab) target.grab(this);
+      if (!Input.isDown('tether')) this.throwTowed();
+      return;
+    }
+    if (kind === 'enemy') hurtEnemy(target, 4, { cause: 'tether', stagger: 0.25, noKnock: true, hitstop: 0.02, angle: 0 });
+  }
+  tetherHit(T) {
+    for (const e of Game.enemies) {
+      if (e.dead || e.spawning) continue;
+      if (T.x > e.x - e.w / 2 - 3 && T.x < e.x + e.w / 2 + 3 && T.y > e.y - e.h - 3 && T.y < e.y + 3) { this.attachTether(e, 'enemy'); return true; }
+    }
+    const grab = (o) => !o.dead && o.tetherable !== false && o.grabR && dist(T.x, T.y, o.cx, o.cy) < o.grabR + 3;
+    for (const o of Game.props) if (grab(o)) { this.attachTether(o, 'object'); return true; }
+    for (const o of Game.projectiles) if (o.tetherable && grab(o)) { this.attachTether(o, o.rebound ? 'grenade' : 'object'); return true; }
+    return false;
   }
   updateTether(dt) {
     const T = this.tether;
@@ -685,19 +802,17 @@ class Player {
     T.t += dt;
     const [hx, hy] = this.hand();
     if (T.phase === 'fly') {
+      const h = T.homing;
+      if (h && !h.dead && h.tetherable) {
+        const sp0 = Math.hypot(T.vx, T.vy), ha = Math.atan2(h.y - T.y, h.x - T.x);
+        T.vx = Math.cos(ha) * sp0; T.vy = Math.sin(ha) * sp0;
+      }
       const sp = Math.hypot(T.vx, T.vy), steps = Math.max(1, Math.ceil((sp * dt) / 4));
       for (let i = 0; i < steps; i++) {
         T.x += (T.vx * dt) / steps; T.y += (T.vy * dt) / steps; T.dist += (sp * dt) / steps;
-        for (const e of Game.enemies) {
-          if (e.dead || e.spawning) continue;
-          if (T.x > e.x - e.w / 2 - 3 && T.x < e.x + e.w / 2 + 3 && T.y > e.y - e.h - 3 && T.y < e.y + 3) { this.attachTether(e, 'enemy'); return; }
-        }
-        for (const p of Game.props) {
-          if (p.dead) continue;
-          if (T.x > p.x - p.w / 2 - 3 && T.x < p.x + p.w / 2 + 3 && T.y > p.y - p.h - 3 && T.y < p.y + 2) { this.attachTether(p, 'prop'); return; }
-        }
+        if (this.tetherHit(T)) return;
         let hitWorld = Level.pointSolid(T.x, T.y, undefined, true);
-        if (!hitWorld) for (const p of Level.platforms) if (T.x >= p.x && T.x < p.x + p.w && T.y >= p.y && T.y < p.y + 5) { hitWorld = true; break; }
+        if (!hitWorld && !(h && !h.dead)) for (const p of Level.platforms) if (T.x >= p.x && T.x < p.x + p.w && T.y >= p.y && T.y < p.y + 5) { hitWorld = true; break; }
         if (hitWorld) {
           T.x -= (T.vx * dt) / steps; T.y -= (T.vy * dt) / steps;
           this.attachTether(null, 'world');
@@ -711,24 +826,27 @@ class Player {
     } else if (T.phase === 'attached') {
       if (T.target) {
         if (T.target.dead) { this.releaseTether(); return; }
-        T.x = T.target.x + T.ox; T.y = T.target.y + T.oy;
-        if (T.target.isEnemy) { T.target.stun = Math.max(T.target.stun, 0.08); if (Math.random() < 0.35) FX.elec(T.x, T.y, 9, 1); }
+        if (T.kind === 'object' || T.kind === 'grenade') { T.x = T.target.cx; T.y = T.target.cy; }
+        else { T.x = T.target.x + T.ox; T.y = T.target.y + T.oy; }
+        if (T.target.isEnemy && Math.random() < 0.35) FX.elec(T.x, T.y, 9, 1);
       }
+      if (T.mode === 'tow') {
+        T.target.towTo(hx, hy, dt, this);
+        if (!Input.isDown('tether') || T.t > 5) this.throwTowed();
+        return;
+      }
+      if (T.mode === 'rebound') return;
       if (!T.mode) {
-        const held = Input.isDown(T.holdKey), since = Game.time - T.firedAt;
-        const tap = S.controls.tetherTapYank;
-        if (!held) T.mode = T.kind === 'world' ? 'fling' : tap ? 'yank' : 'fling';
+        const held = Input.isDown('tether'), since = Game.time - T.firedAt;
+        if (!held) T.mode = 'fling';
         else if (since >= 0.16) T.mode = 'zip';
         if (T.mode) this.beginTetherMode();
       }
-      if (T.mode === 'yank') {
-        T.yankT -= dt;
-        if (T.yankT <= 0) this.releaseTether();
-      } else if (T.mode === 'fling') {
+      if (T.mode === 'fling') {
         if (T.t > 0.06) this.releaseTether();
       } else if (T.mode === 'zip') {
         if (this.loops.reel) this.loops.reel.set(clamp(T.spd / 600, 0, 1));
-        if (T.t > 2.2) this.releaseTether();
+        if (!this.ult && T.t > 2.2) this.releaseTether();
       }
     } else if (T.phase === 'retract') {
       const dx = hx - T.x, dy = hy - T.y, d = Math.hypot(dx, dy);
@@ -737,16 +855,18 @@ class Player {
       T.x += (dx / d) * step; T.y += (dy / d) * step;
     }
   }
+  throwTowed() {
+    const T = this.tether, o = T.target;
+    if (o && !o.dead) o.throwAt(this.aimAngle, this);
+    Sound.play('throw');
+    const [hx, hy] = this.hand();
+    FX.ring(hx, hy, 2, 14, 0.18, { w: 1 });
+    Game.shake(0.1);
+    this.releaseTether();
+  }
   beginTetherMode() {
     const T = this.tether;
-    if (T.mode === 'yank' && (!T.target || T.target.heavy)) T.mode = 'fling';
-    if (T.mode === 'yank') {
-      T.yankT = 0.3;
-      T.target.yankTo(this);
-      Sound.play('yank');
-      FX.elec(T.x, T.y, 14, 4);
-      Game.shake(0.1);
-    } else if (T.mode === 'fling') {
+    if (T.mode === 'fling') {
       const [cx, cy] = this.chest();
       const dx = T.x - cx, dy = T.y - cy, d = Math.hypot(dx, dy) || 1;
       const sp = this.ult ? 760 : 420;
@@ -754,7 +874,6 @@ class Player {
       this.onGround = false; this.airJumps = 1;
       if (this.sliding || this.crouching) { this.sliding = false; this.crouching = false; this.setHeight(PC.H) || this.setHeight(PC.SLIDE_H); }
       Sound.play('zip');
-      if (T.target && T.target.isEnemy && T.target.heavy) T.target.stagger(0.3, 0);
     } else if (T.mode === 'zip') {
       Sound.play('zip');
       this.loops.reel = Sound.loop('reel');
@@ -774,26 +893,94 @@ class Player {
     this.facing = dx >= 0 ? 1 : -1;
     this.ghostT -= dt;
     if (this.ghostT <= 0) { this.ghostT = 0.03; this.makeGhost('#ff2a48', 0.2, 0.4); }
-    if (!this.ult && !Input.isDown(T.holdKey)) { this.releaseTether(); this.vx *= 1.05; this.vy *= 1.05; return; }
-    if (d < (T.kind === 'enemy' ? 15 : T.kind === 'prop' ? 12 : 10)) this.arriveZip();
+    if (!Input.isDown('tether')) { this.releaseTether(); this.vx *= 1.05; this.vy *= 1.05; return; }
+    if (d < (T.kind === 'enemy' ? 15 : 10)) this.arriveZip();
   }
   arriveZip() {
     const T = this.tether;
     if (T.kind === 'enemy' && T.target && !T.target.dead) {
       const e = T.target;
+      if (this.ult) {
+        // The sawblade latches on and keeps grinding while the button is held.
+        T.mode = 'grind'; T.grindT = 0; T.grindN = 0;
+        Sound.play('sawHit');
+        return;
+      }
       hurtEnemy(e, 22, { kx: this.facing * 160, ky: -120, cause: 'tether', angle: this.aimAngle, stagger: 0.7, hitstop: 0.05, shake: 0.15, heavy: true });
       FX.swoosh({ x: this.x, y: this.cy, r: 30, span: 3.2, ang: Math.atan2(e.y - e.h / 2 - this.cy, e.x - this.x), dir: this.facing, sweep: 0.06, dur: 0.2, thick: 10 });
       Sound.play('swing', { stage: 1 });
       this.vy = -230; this.vx *= 0.25;
-    } else if (T.kind === 'prop' && T.target && !T.target.dead) {
-      T.target.hit(20, { kx: this.facing * 200, ky: -100 });
-      this.vy = -200; this.vx *= 0.3;
     } else {
       this.vx *= 0.3;
       this.vy = Math.min(this.vy * 0.3, -150);
     }
     this.airJumps = 1;
     this.releaseTether();
+  }
+
+  // Tethering a pulse grenade in flight: time slows, you reel yourself to it and slash it toward the cursor.
+  beginRebound(g) {
+    const T = this.tether;
+    T.mode = 'rebound'; T.spd = Math.max(260, Math.hypot(this.vx, this.vy));
+    g.catch(this);
+    if (this.sheathe) this.cancelSheathe();
+    this.attack = null; this.attackQueued = false; this.plunge = null; this.dashT = 0;
+    if (this.sliding || this.crouching) { this.sliding = false; this.crouching = false; this.setHeight(PC.H) || this.setHeight(PC.SLIDE_H); }
+    this.onGround = false;
+    this.iframes = Math.max(this.iframes, 0.6);
+    Game.bulletTime(1.6);
+    Sound.play('timeSlow');
+    FX.ring(g.x, g.y, 2, 34, 0.35, { c: '#4af0ff', core: '#ffffff', w: 1 });
+    FX.ring(g.x, g.y, 40, 8, 0.3, { c: '#ffd070', core: '#ffffff', w: 1 });
+    FX.elec(g.x, g.y, 18, 6, { outer: '#2ab8d8', core: '#ffffff' });
+  }
+  moveRebound(dt) {
+    const T = this.tether, g = T.target;
+    const [cx, cy] = this.chest();
+    const dx = T.x - cx, dy = T.y - cy, d = Math.hypot(dx, dy) || 1;
+    T.spd = Math.min(this.ult ? 1100 : 820, T.spd + 3600 * dt);
+    this.vx = (dx / d) * T.spd; this.vy = (dy / d) * T.spd;
+    this.facing = dx >= 0 ? 1 : -1;
+    this.ghostT -= dt;
+    if (this.ghostT <= 0) { this.ghostT = 0.02; this.makeGhost('#ffd070', 0.3, 0.5); }
+    if (d < 16) this.reboundSlash();
+    else if (T.t > 0.6) { if (d < 40) this.reboundSlash(); else this.releaseTether(); }
+    else if (!g || g.dead) this.releaseTether();
+  }
+  reboundSlash() {
+    const T = this.tether, g = T.target, ang = this.aimAngle;
+    g.bat(ang, this);
+    this.releaseTether();
+    Game.endBulletTime();
+    if (this.ult) {
+      FX.swoosh({ x: this.x, y: this.cy, r: 30, span: 3.6, ang, dir: this.facing, sweep: 0.06, dur: 0.24, thick: 12, pal: PALETTES.gold, trail: 1 });
+    } else {
+      this.startSwing(3);
+      FX.swoosh({ x: this.x, y: this.cy, follow: this, ox: 0, oy: this.cy - this.y, r: 44, span: 3.4, ang, dir: this.attack.dir, sweep: 0.08, dur: 0.3, thick: 14, pal: PALETTES.gold, trail: 1 });
+    }
+    this.vx = Math.cos(ang) * 60; this.vy = -150;
+    this.airJumps = 1; this.hoverAvail = true;
+    this.iframes = Math.max(this.iframes, 0.3);
+    FX.slashLine(g.x - Math.cos(ang) * 14, g.y - Math.sin(ang) * 14, g.x + Math.cos(ang) * 46, g.y + Math.sin(ang) * 46, { w: 4, dur: 0.3, pal: PALETTES.gold });
+    FX.ring(g.x, g.y, 3, 26, 0.25, { c: '#ffd070', core: '#ffffff', w: 2 });
+    FX.sparks(g.x, g.y, 24, ang, 0.9, 120, 380, { c0: '#ffffff', c1: '#ffe080', c2: '#ff5a3a' });
+    FX.text('REBOUND', g.x, g.y - 16, { c: '#ffd070', always: true, dur: 0.8, vy: -24 });
+    FX.flash('#ffffff', 0.22);
+    Sound.play('rebound');
+    Game.hitstop(0.07);
+    Game.shake(0.35);
+  }
+  // The rival's phase change throws you clear. Pure knockback, no damage.
+  blastAway(x, power = 1) {
+    if (this.dead) return;
+    if (this.tether) this.releaseTether();
+    if (this.sheathe) this.cancelSheathe();
+    this.attack = null; this.attackQueued = false; this.plunge = null; this.iaido = null; this.dashT = 0; this.sliding = false;
+    if (this.crouching && this.setHeight(PC.H)) this.crouching = false;
+    const dir = sign(this.x - x) || -this.facing;
+    this.vx = dir * 430 * power; this.vy = -260 * power; this.onGround = false;
+    this.hurtT = 0.45; this.facing = -dir;
+    FX.sparks(this.x, this.cy, 12, dir > 0 ? 0 : Math.PI, 1.2, 60, 220, { c0: '#ffffff', c1: '#ff6a7a', c2: '#145e6a' });
   }
 
   // ---------- ultimate ----------
@@ -832,7 +1019,7 @@ class Player {
 
   // ---------- damage ----------
   takeHit(h) {
-    if (this.dead) return 'ignored';
+    if (this.dead || Game.cineActive()) return 'ignored';
     if (this.ult) return 'immune';
     if (this.parryActive()) { this.doParry(h); return 'parried'; }
     if (this.iframes > 0 || this.iaido) return 'ignored';
@@ -874,6 +1061,14 @@ class Player {
     Game.stats.damageTaken += h.dmg;
     if (this.hp <= 0) this.die();
     return 'hit';
+  }
+  // A pulse hit knocks the shield out: it drops to zero and can't recharge for a while.
+  disableShield(dur) {
+    this.shield = 0; this.shieldOffT = dur;
+    this.shieldDelay = Math.max(this.shieldDelay, dur); this.regenOn = false;
+    Sound.play('shieldBreak');
+    FX.text('SHIELD DISABLED', this.x, this.y - 34, { c: '#5ad8ff', always: true, dur: 1.2, vy: -16 });
+    FX.elec(this.x, this.cy, 14, 6, { outer: '#2ab8d8', core: '#ffffff' });
   }
   heal(n) {
     this.hp = Math.min(PC.MAX_HP, this.hp + n);
@@ -939,7 +1134,7 @@ class Player {
     const t = this.animT, f = this.facing;
     const o = { hipX: 0, hipY: -10, lean: 0.08, fF: [2.5, -1], fB: [-2.5, -1], hF: null, hB: null, sword: 'hand', swordAng: 2.35, rot: 0, sheathAng: 2.9, tremble: 0 };
     const la = localAngle(this.aimAngle, f);
-    const shoulder = () => [o.hipX + Math.sin(o.lean) * 6, o.hipY - Math.cos(o.lean) * 6];
+    if (this.customPose && this.customPose(o, la)) return o;
     if (this.dead) {
       const k = clamp(this.deadT / 0.35, 0, 1);
       o.rot = -1.45 * k; o.hipY = -10 + 4 * k; o.fF = [4, -1]; o.fB = [-1, -1]; o.lean = -0.2;
@@ -958,7 +1153,7 @@ class Player {
       return o;
     }
     if (this.sheathe) {
-      const ch = this.sheathe.charge;
+      const ch = this.sheathe.empowered ? 1 : 0;
       o.lean = 0.5 + ch * 0.1; o.hipY = -7 + ch; o.fF = [6, -1]; o.fB = [-5, -1];
       if (!this.onGround) { o.fF = [4, -4]; o.fB = [-3, -2]; }
       o.sword = 'sheathed'; o.sheathAng = Math.PI - 0.15; o.hF = [3, -9 + ch]; o.hB = [-2, -8 + ch];
@@ -968,6 +1163,11 @@ class Player {
     if (this.plunge) {
       o.lean = 0.05; o.fF = [3, -6]; o.fB = [-2, -5]; o.hipY = -11;
       o.swordAng = Math.PI / 2; o.hF = [1, -9]; o.hB = [-1, -9];
+      return o;
+    }
+    if (this.attack && this.attack.groundCut) {
+      o.lean = -0.4; o.hipY = -4; o.fF = [8, -1]; o.fB = [1, -1]; o.hB = [-6, -1];
+      o.swordAng = 0.95; o.hF = [8, -4];
       return o;
     }
     if (this.attack) {
@@ -986,14 +1186,15 @@ class Player {
       o.rot = Math.atan2(this.dashVY, Math.abs(this.dashVX) + 1) * 0.7;
       return o;
     }
-    if (this.zipping() || (this.tether && this.tether.phase === 'fly')) {
+    const towing = this.tether && this.tether.mode === 'tow' && this.tether.phase === 'attached';
+    if (this.zipping() || towing || (this.tether && this.tether.phase === 'fly')) {
       const T = this.tether;
       const [cx, cy] = this.chest();
       const ta = localAngle(Math.atan2(T.y - cy, T.x - cx), f);
       o.hB = [Math.cos(ta) * 8, -12 + Math.sin(ta) * 8];
       if (this.zipping()) { o.lean = 0.5; o.fF = [-1, -4]; o.fB = [-6, -3]; o.swordAng = Math.PI - 0.3; o.hF = [-5, -9]; }
       else if (!this.onGround) { o.fF = [3, -4]; o.fB = [-3, -2]; }
-      if (this.tether.phase === 'fly' || this.zipping()) return o;
+      if (this.tether.phase === 'fly' || this.zipping() || towing) return o;
     }
     if (this.hurtT > 0) {
       o.lean = -0.35; o.hF = [4, -16]; o.hB = [-5, -15]; o.fF = [3, -2]; o.fB = [-3, -1]; o.swordAng = -1;
@@ -1046,10 +1247,11 @@ class Player {
   draw(ctx, camX, camY) {
     if (this.ult) { getUltimate(this.ult.id).draw(this, ctx, camX, camY); return; }
     const o = this.pose();
+    const C = this.pal || PCOL;
     const g = Sprite.begin(this.facing);
     const tr = o.tremble ? (Math.random() < 0.5 ? -1 : 1) * (Math.random() < 0.5 ? 1 : 0) : 0;
     if (this.landSquash > 0) o.hipY += 1.5;
-    const pivotY = -10;
+    const pivotY = o.pivotY !== undefined ? o.pivotY : -10;
     const R = (x, y) => rotPt(x, y, 0, pivotY, o.rot);
     const hip = [o.hipX + tr, o.hipY];
     const neck = [hip[0] + Math.sin(o.lean) * 7, hip[1] - Math.cos(o.lean) * 7];
@@ -1073,54 +1275,55 @@ class Player {
     const sc = [];
     for (const p of this.scarf) sc.push((p.x - this.x) * this.facing, p.y - this.y);
     sc[0] = Neck[0] - 1; sc[1] = Neck[1] + 1;
-    g.fillStyle = PCOL.scarfD; polyline(g, sc.slice(0, 6), 2);
-    g.fillStyle = PCOL.scarf; polyline(g, sc, 1);
+    g.fillStyle = C.scarfD; polyline(g, sc.slice(0, 6), 2);
+    g.fillStyle = C.scarf; polyline(g, sc, 1);
     // back limbs
-    limb(g, Sh[0], Sh[1], EB[0], EB[1], HB[0], HB[1], PCOL.dark, 2);
-    limb(g, Hip[0], Hip[1], KB[0], KB[1], FB[0], FB[1], PCOL.dark, 2);
-    g.fillStyle = PCOL.boot; g.fillRect(Math.round(FB[0]) - 1, Math.round(FB[1]), 3, 1);
+    limb(g, Sh[0], Sh[1], EB[0], EB[1], HB[0], HB[1], C.dark, 2);
+    limb(g, Hip[0], Hip[1], KB[0], KB[1], FB[0], FB[1], C.dark, 2);
+    g.fillStyle = C.boot; g.fillRect(Math.round(FB[0]) - 1, Math.round(FB[1]), 3, 1);
     // sheath on the hip
     const sa = o.sword === 'sheathed' ? o.sheathAng + o.rot : 2.75 + o.rot - o.lean * 0.5;
     const s0 = [Hip[0] - 1, Hip[1] + 1], s1 = [s0[0] + Math.cos(sa) * 11, s0[1] + Math.sin(sa) * 11];
     const charge = this.sheathe ? this.sheathe.charge : 0;
-    g.fillStyle = charge > 0.95 ? (this.sheathe.empowered ? '#ffd070' : '#ff5a70') : PCOL.sheath;
+    g.fillStyle = charge > 0.95 ? (this.sheathe.empowered ? '#ffd070' : '#ff5a70') : C.sheath;
     pline(g, s0[0], s0[1], s1[0], s1[1], 2);
-    g.fillStyle = PCOL.tsuba; g.fillRect(Math.round(s1[0]), Math.round(s1[1]), 1, 1);
-    g.fillStyle = PCOL.sheathD; pline(g, s0[0] + Math.cos(sa) * 2, s0[1] + Math.sin(sa) * 2 - 1, s1[0], s1[1] - 1, 1);
+    g.fillStyle = C.tsuba; g.fillRect(Math.round(s1[0]), Math.round(s1[1]), 1, 1);
+    g.fillStyle = C.sheathD; pline(g, s0[0] + Math.cos(sa) * 2, s0[1] + Math.sin(sa) * 2 - 1, s1[0], s1[1] - 1, 1);
     if (o.sword === 'sheathed') {
       const ha = sa + Math.PI;
-      g.fillStyle = PCOL.tsuba; g.fillRect(Math.round(s0[0] + Math.cos(ha)), Math.round(s0[1] + Math.sin(ha)), 1, 1);
-      g.fillStyle = PCOL.handle; pline(g, s0[0] + Math.cos(ha) * 2, s0[1] + Math.sin(ha) * 2, s0[0] + Math.cos(ha) * 5, s0[1] + Math.sin(ha) * 5, 1);
+      g.fillStyle = C.tsuba; g.fillRect(Math.round(s0[0] + Math.cos(ha)), Math.round(s0[1] + Math.sin(ha)), 1, 1);
+      g.fillStyle = C.handle; pline(g, s0[0] + Math.cos(ha) * 2, s0[1] + Math.sin(ha) * 2, s0[0] + Math.cos(ha) * 5, s0[1] + Math.sin(ha) * 5, 1);
     }
     // torso
-    g.fillStyle = PCOL.mid; pline(g, Hip[0], Hip[1], Neck[0], Neck[1], 4);
-    g.fillStyle = PCOL.dark; pline(g, Hip[0] - 1, Hip[1] + 1, Hip[0] + 1, Hip[1] + 1, 2);
+    g.fillStyle = C.mid; pline(g, Hip[0], Hip[1], Neck[0], Neck[1], 4);
+    g.fillStyle = C.dark; pline(g, Hip[0] - 1, Hip[1] + 1, Hip[0] + 1, Hip[1] + 1, 2);
     const ca = o.lean + o.rot;
     const fx = Math.cos(ca), fy = Math.sin(ca);
-    g.fillStyle = PCOL.light;
+    g.fillStyle = C.light;
     pline(g, Hip[0] + fx * 1.2 + Math.sin(ca) * -2, Hip[1] + fy * 1.2 - Math.cos(ca) * 2, Neck[0] + fx * 1.2, Neck[1] + fy * 1.2, 1);
-    g.fillStyle = PCOL.core; g.fillRect(Math.round((Hip[0] + Neck[0]) / 2 + fx), Math.round((Hip[1] + Neck[1]) / 2 - 1), 1, 1);
+    g.fillStyle = C.core; g.fillRect(Math.round((Hip[0] + Neck[0]) / 2 + fx), Math.round((Hip[1] + Neck[1]) / 2 - 1), 1, 1);
     // head
-    g.fillStyle = PCOL.mid; pdisc(g, Head[0], Head[1], 3.1);
-    g.fillStyle = PCOL.light; g.fillRect(Math.round(Head[0] - 1), Math.round(Head[1] - 3), 3, 1);
-    g.fillStyle = PCOL.dark; g.fillRect(Math.round(Head[0] - 2), Math.round(Head[1] + 2), 4, 1);
+    g.fillStyle = C.mid; pdisc(g, Head[0], Head[1], 3.1);
+    g.fillStyle = C.light; g.fillRect(Math.round(Head[0] - 1), Math.round(Head[1] - 3), 3, 1);
+    g.fillStyle = C.dark; g.fillRect(Math.round(Head[0] - 2), Math.round(Head[1] + 2), 4, 1);
     const ha = o.lean * 0.4 + o.rot;
     const hx = Math.cos(ha), hy = Math.sin(ha);
-    g.fillStyle = PCOL.dark; pline(g, Head[0] - hx * 0.5, Head[1] - hy * 0.5, Head[0] + hx * 3, Head[1] + hy * 3, 2);
-    g.fillStyle = PCOL.visor; pline(g, Head[0] + hx * 0.5, Head[1] + hy * 0.5, Head[0] + hx * 2.6, Head[1] + hy * 2.6, 1);
+    g.fillStyle = C.dark; pline(g, Head[0] - hx * 0.5, Head[1] - hy * 0.5, Head[0] + hx * 3, Head[1] + hy * 3, 2);
+    g.fillStyle = C.visor; pline(g, Head[0] + hx * 0.5, Head[1] + hy * 0.5, Head[0] + hx * 2.6, Head[1] + hy * 2.6, 1);
     g.fillStyle = '#ffd0d8'; g.fillRect(Math.round(Head[0] + hx * 2.6), Math.round(Head[1] + hy * 2.6), 1, 1);
     // front leg
-    limb(g, Hip[0], Hip[1], KF[0], KF[1], FF[0], FF[1], PCOL.light, 2);
-    g.fillStyle = PCOL.hi; g.fillRect(Math.round(KF[0]), Math.round(KF[1]) - 1, 1, 1);
-    g.fillStyle = PCOL.boot; g.fillRect(Math.round(FF[0]) - 1, Math.round(FF[1]), 3, 1);
+    limb(g, Hip[0], Hip[1], KF[0], KF[1], FF[0], FF[1], C.light, 2);
+    g.fillStyle = C.hi; g.fillRect(Math.round(KF[0]), Math.round(KF[1]) - 1, 1, 1);
+    g.fillStyle = C.boot; g.fillRect(Math.round(FF[0]) - 1, Math.round(FF[1]), 3, 1);
     // front arm + katana
-    limb(g, Sh[0], Sh[1], EF[0], EF[1], HF[0], HF[1], PCOL.light, 2);
-    g.fillStyle = PCOL.hi; g.fillRect(Math.round(Sh[0]) - 1, Math.round(Sh[1]) - 1, 2, 2);
-    if (o.sword === 'hand') this.drawKatana(g, HF[0], HF[1], sAng, 13, !!this.attack || !!this.iaido);
+    limb(g, Sh[0], Sh[1], EF[0], EF[1], HF[0], HF[1], C.light, 2);
+    g.fillStyle = C.hi; g.fillRect(Math.round(Sh[0]) - 1, Math.round(Sh[1]) - 1, 2, 2);
+    if (o.sword === 'hand') this.drawKatana(g, HF[0], HF[1], sAng, 13, !!this.attack || !!this.iaido, C);
     this._swordTip = [this.x + (HF[0] + Math.cos(sAng) * 13) * this.facing, this.y + HF[1] + Math.sin(sAng) * 13];
     this._visor = [this.x + (Head[0] + hx * 2) * this.facing, this.y + Head[1]];
 
-    const flash = this.hurtT > 0.12 ? '#ffffff' : null;
+    if (this.drawExtras) this.drawExtras(g, { Sh, Neck, Head, Hip, HB, HF }, C);
+    const flash = this.drawFlash ? this.drawFlash() : this.hurtT > 0.12 ? '#ffffff' : null;
     const blink = this.blinkT > 0 && this.hurtT <= 0 && ((this.animT * 30) | 0) % 2 === 0;
     if (!this.spriteCopy) this.spriteCopy = makeCanvas(Sprite.SIZE, Sprite.SIZE);
     const cc = this.spriteCopy.ctx;
@@ -1128,15 +1331,15 @@ class Player {
     cc.drawImage(Sprite.scratch, 0, 0);
     Sprite.end(ctx, this.x - camX, this.y - camY, { flash, alpha: blink ? 0.55 : 1 });
   }
-  drawKatana(g, hx, hy, ang, len, hot) {
+  drawKatana(g, hx, hy, ang, len, hot, C = PCOL) {
     const c = Math.cos(ang), s = Math.sin(ang);
-    g.fillStyle = PCOL.handle; pline(g, hx - c * 3, hy - s * 3, hx, hy, 1);
-    g.fillStyle = PCOL.tsuba;
+    g.fillStyle = C.handle; pline(g, hx - c * 3, hy - s * 3, hx, hy, 1);
+    g.fillStyle = C.tsuba;
     g.fillRect(Math.round(hx + c - s), Math.round(hy + s + c), 1, 1);
     g.fillRect(Math.round(hx + c + s), Math.round(hy + s - c), 1, 1);
-    g.fillStyle = hot ? '#ffffff' : PCOL.blade;
+    g.fillStyle = hot ? '#ffffff' : C.blade;
     pline(g, hx + c * 2, hy + s * 2, hx + c * len, hy + s * len, 1);
-    g.fillStyle = PCOL.edge;
+    g.fillStyle = C.edge;
     pline(g, hx + c * 3 - s, hy + s * 3 + c, hx + c * (len - 2) - s, hy + s * (len - 2) + c, 1);
   }
   drawEmissive(ctx, camX, camY) {
@@ -1156,9 +1359,10 @@ class Player {
     if (this.ult) { getUltimate(this.ult.id).drawEmissive(this, ctx, camX, camY); return; }
     const [cx, cy] = this.chest();
     if (this.sheathe) {
-      const ch = this.sheathe.charge, r = 14;
-      const col = this.sheathe.empowered ? '#ffd070' : ch >= 1 ? '#ffffff' : '#ff3a52';
-      ctx.fillStyle = '#3a0a14';
+      const s = this.sheathe, r = 14;
+      // ring drains as the parry window closes; gold once a parry lands
+      const ch = s.empowered ? 1 : clamp(1 - s.t / Math.max(0.01, s.parryUntil), 0, 1);
+      const col = s.empowered ? '#ffd070' : '#ffe8a0';
       const n = 24;
       for (let i = 0; i < n; i++) {
         const a = -Math.PI / 2 + (i / n) * TAU;

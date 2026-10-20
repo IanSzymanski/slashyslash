@@ -6,7 +6,7 @@ const Sound = (() => {
   let comp, master, lowpass, sfxBus, musicBus, reverbIn, noiseBuf, crackleBuf;
   let focusMute = 1;
   const last = {};
-  const GAP = { hit: 0.025, step: 0.09, sawHit: 0.045, spark: 0.03, enemyShoot: 0.04, shieldHit: 0.05, land: 0.06, barrelHit: 0.05, kill: 0.02, enemyWindup: 0.05 };
+  const GAP = { hit: 0.025, step: 0.09, sawHit: 0.045, spark: 0.03, enemyShoot: 0.04, shieldHit: 0.05, land: 0.06, barrelHit: 0.05, kill: 0.02, enemyWindup: 0.05, glint: 0.06, thud: 0.08 };
 
   function makeNoise(sec) {
     const n = (ac.sampleRate * sec) | 0, b = ac.createBuffer(1, n, ac.sampleRate), d = b.getChannelData(0);
@@ -240,11 +240,6 @@ const Sound = (() => {
       crackle(0.12, 0.24);
     },
     tetherMiss() { tone({ type: 'sine', f0: 620, f1: 200, dur: 0.12, vol: 0.05 }); },
-    yank() {
-      noise({ dur: 0.2, vol: 0.3, f0: 800, f1: 2600, q: 0.9 });
-      tone({ type: 'sawtooth', f0: 110, f1: 420, dur: 0.18, vol: 0.06 });
-      crackle(0.2, 0.3);
-    },
     zip() {
       noise({ dur: 0.3, vol: 0.24, f0: 300, f1: 1600, q: 0.9 });
       crackle(0.24, 0.2);
@@ -336,6 +331,118 @@ const Sound = (() => {
       tone({ type: 'square', f0: 2000, f1: 600, dur: 0.1, vol: 0.07 });
       crackle(0.12, 0.2);
     },
+    denied() {
+      tone({ type: 'square', f0: 330, dur: 0.04, vol: 0.05 });
+      tone({ type: 'square', f0: 250, dur: 0.05, vol: 0.05, delay: 0.05 });
+    },
+    unsheathe() {
+      tone({ type: 'triangle', f0: 1600, f1: 2200, dur: 0.05, vol: 0.06 });
+      noise({ dur: 0.05, vol: 0.06, type: 'highpass', f0: 3500 });
+    },
+    groundCut() {
+      noise({ dur: 0.34, vol: 0.32, f0: 1800, f1: 600, q: 1.2 });
+      crackle(0.28, 0.22, { f: 900 });
+      tone({ type: 'square', f0: 140, f1: 60, dur: 0.2, vol: 0.08 });
+    },
+    rocks() {
+      for (let i = 0; i < 5; i++) noise({ dur: 0.05, vol: 0.18, type: 'lowpass', f0: 900 + Math.random() * 1200, delay: i * 0.03 + Math.random() * 0.02 });
+      tone({ type: 'sine', f0: 120, f1: 50, dur: 0.15, vol: 0.4 });
+    },
+    throw() {
+      noise({ dur: 0.18, vol: 0.32, f0: 500, f1: 3000, q: 0.9 });
+      crackle(0.15, 0.18);
+    },
+    bossGun() {
+      tone({ type: 'square', f0: 900, f1: 220, dur: 0.05, vol: 0.06 });
+      noise({ dur: 0.05, vol: 0.2, f0: 2600, f1: 900, q: 1.2 });
+    },
+    lockBeep(p) { tone({ type: 'square', f0: 1400 * (p.pm || 1), dur: 0.035, vol: 0.05 }); },
+    bossShieldBreak() {
+      noise({ dur: 0.6, vol: 0.55, type: 'highpass', f0: 2200, rev: 0.5 });
+      for (const f of [1800, 1350, 900, 600]) tone({ type: 'triangle', f0: f, f1: f * 0.4, dur: 0.5, vol: 0.08, rev: 0.4 });
+      tone({ type: 'sine', f0: 110, f1: 28, dur: 0.7, vol: 0.8 });
+    },
+    shieldUp() {
+      tone({ type: 'sine', f0: 300, f1: 1400, dur: 0.5, vol: 0.09, a: 0.2, rev: 0.4 });
+      crackle(0.3, 0.12);
+    },
+    shieldDeflect() {
+      tone({ type: 'triangle', f0: 2400, f1: 1800, dur: 0.08, vol: 0.07 });
+      noise({ dur: 0.04, vol: 0.12, type: 'highpass', f0: 5000 });
+    },
+    bossRoar() {
+      tone({ type: 'sawtooth', f0: 70, f1: 45, dur: 0.9, vol: 0.12, a: 0.05, rev: 0.5 });
+      tone({ type: 'square', f0: 105, f1: 66, dur: 0.8, vol: 0.06 });
+      crackle(0.6, 0.3, { f: 500 });
+    },
+    pulse() {
+      tone({ type: 'sine', f0: 140, f1: 30, dur: 0.7, vol: 0.9 });
+      noise({ dur: 0.5, vol: 0.5, type: 'lowpass', f0: 2600, f1: 120, rev: 0.4 });
+      for (const f of [1800, 1200]) tone({ type: 'square', f0: f, f1: f * 0.25, dur: 0.35, vol: 0.05, rev: 0.4 });
+      crackle(0.5, 0.4, { f: 600 });
+    },
+    beamCharge() {
+      tone({ type: 'sawtooth', f0: 120, f1: 900, dur: 0.85, vol: 0.06, a: 0.05 });
+      crackle(0.8, 0.18);
+    },
+    // the bright "shing" that warns a melee hit is coming
+    glint() {
+      tone({ type: 'sine', f0: 4200, f1: 4500, dur: 0.2, vol: 0.07, rev: 0.45 });
+      tone({ type: 'triangle', f0: 2800, f1: 3100, dur: 0.12, vol: 0.05 });
+      noise({ dur: 0.03, vol: 0.1, type: 'highpass', f0: 6500 });
+    },
+    timeSlow() {
+      tone({ type: 'sine', f0: 900, f1: 90, dur: 0.6, vol: 0.12, rev: 0.6 });
+      tone({ type: 'sawtooth', f0: 220, f1: 55, dur: 0.5, vol: 0.05 });
+      noise({ dur: 0.5, vol: 0.25, type: 'bandpass', f0: 3000, f1: 300, q: 2, rev: 0.5 });
+      tone({ type: 'sine', f0: 60, f1: 40, dur: 0.25, vol: 0.5, delay: 0.05 });
+      tone({ type: 'sine', f0: 60, f1: 40, dur: 0.25, vol: 0.35, delay: 0.42 });
+    },
+    rebound() {
+      tone({ type: 'sine', f0: 120, f1: 1400, dur: 0.18, vol: 0.12 });
+      noise({ dur: 0.28, vol: 0.5, f0: 1800, f1: 6000, q: 1.2 });
+      tone({ type: 'triangle', f0: 1900, f1: 1500, dur: 0.3, vol: 0.09, rev: 0.5 });
+      tone({ type: 'sine', f0: 160, f1: 40, dur: 0.22, vol: 0.6 });
+      crackle(0.3, 0.3, { f: 800 });
+    },
+    blocked() {
+      tone({ type: 'triangle', f0: 1600, f1: 900, dur: 0.25, vol: 0.08, rev: 0.4 });
+      noise({ dur: 0.3, vol: 0.25, type: 'lowpass', f0: 2000, f1: 200 });
+      tone({ type: 'sine', f0: 120, f1: 50, dur: 0.3, vol: 0.4 });
+    },
+    limiterPop() {
+      tone({ type: 'square', f0: 700, f1: 180, dur: 0.08, vol: 0.06 });
+      noise({ dur: 0.08, vol: 0.3, type: 'highpass', f0: 2500 });
+      tone({ type: 'sine', f0: 140, f1: 60, dur: 0.1, vol: 0.35 });
+    },
+    enrageCharge() {
+      tone({ type: 'sawtooth', f0: 50, f1: 420, dur: 1.1, vol: 0.09, a: 0.1, rev: 0.4 });
+      tone({ type: 'square', f0: 75, f1: 630, dur: 1.1, vol: 0.04, a: 0.1, detune: 12 });
+      crackle(1.1, 0.25, { f: 700 });
+    },
+    enrageRoar() {
+      tone({ type: 'sawtooth', f0: 95, f1: 55, dur: 1.2, vol: 0.16, a: 0.04, rev: 0.6 });
+      tone({ type: 'square', f0: 142, f1: 80, dur: 1.1, vol: 0.07, detune: -15 });
+      tone({ type: 'sine', f0: 70, f1: 30, dur: 1.2, vol: 0.7 });
+      noise({ dur: 1.0, vol: 0.4, type: 'bandpass', f0: 700, f1: 300, q: 0.8, rev: 0.5 });
+      crackle(1.0, 0.45, { f: 400 });
+    },
+    // last hit: a hard impact that rings out under the slow motion
+    koHit() {
+      tone({ type: 'sine', f0: 180, f1: 26, dur: 1.4, vol: 1.0 });
+      noise({ dur: 0.5, vol: 0.6, type: 'lowpass', f0: 4000, f1: 100, rev: 0.6 });
+      for (const f of [2400, 1600, 1210]) tone({ type: 'triangle', f0: f, f1: f * 0.97, dur: 1.6, vol: 0.05, a: 0.01, rev: 0.7 });
+      crackle(0.4, 0.4, { f: 600 });
+    },
+    thud() {
+      tone({ type: 'sine', f0: 110, f1: 35, dur: 0.25, vol: 0.7 });
+      noise({ dur: 0.18, vol: 0.35, type: 'lowpass', f0: 900, f1: 120 });
+    },
+    ko() {
+      for (const [f, d] of [[196, 0], [247, 0.0], [294, 0], [392, 0.12]]) tone({ type: 'triangle', f0: f, dur: 1.4, vol: 0.09, delay: d, rev: 0.6 });
+      tone({ type: 'sine', f0: 98, f1: 92, dur: 1.6, vol: 0.4, rev: 0.5 });
+      noise({ dur: 0.6, vol: 0.2, type: 'highpass', f0: 4000, rev: 0.6 });
+    },
     ui() { tone({ type: 'square', f0: 660, dur: 0.04, vol: 0.05 }); },
     uiHover() { tone({ type: 'sine', f0: 990, dur: 0.02, vol: 0.02 }); },
     gameOver() {
@@ -354,6 +461,8 @@ const Sound = (() => {
   }
 
   // ---------- loops ----------
+  const activeLoops = new Set();
+  function stopAll() { for (const l of [...activeLoops]) l.stop(); }
   function loop(kind) {
     if (!ac) return { set() {}, stop() {} };
     const t = ac.currentTime;
@@ -425,10 +534,25 @@ const Sound = (() => {
         },
       };
     }
+    if (kind === 'beam') {
+      const o1 = mk(ac.createOscillator()), o2 = mk(ac.createOscillator());
+      o1.type = 'sawtooth'; o2.type = 'sawtooth'; o1.frequency.value = 110; o2.frequency.value = 113.5;
+      const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = 0.7;
+      const hiss = mk(ac.createBufferSource()); hiss.buffer = noiseBuf; hiss.loop = true;
+      const hf = ac.createBiquadFilter(); hf.type = 'highpass'; hf.frequency.value = 3000;
+      const hg = ac.createGain(); hg.gain.value = 0.35;
+      o1.connect(f); o2.connect(f); f.connect(out); hiss.connect(hf); hf.connect(hg); hg.connect(out);
+      o1.start(t); o2.start(t); hiss.start(t);
+      crackG.gain.value = 0.35;
+      out.gain.setTargetAtTime(0.14, t, 0.03);
+      api = { set() {} };
+    }
     let stopped = false;
+    activeLoops.add(api);
     api.stop = () => {
       if (stopped) return;
       stopped = true;
+      activeLoops.delete(api);
       const n = ac.currentTime;
       out.gain.cancelScheduledValues(n);
       out.gain.setTargetAtTime(0.0001, n, 0.04);
@@ -535,7 +659,8 @@ const Sound = (() => {
   }
 
   return {
-    init, resume, applyVolumes, setFocus, setSlow, play, loop, startMusic, setIntensity,
+    init, resume, applyVolumes, setFocus, setSlow, play, loop, stopAll, startMusic, setIntensity,
     get ready() { return !!ac; },
+    get loopCount() { return activeLoops.size; },
   };
 })();

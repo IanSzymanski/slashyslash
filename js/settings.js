@@ -8,12 +8,11 @@ const ACTIONS = [
   { id: 'left', label: 'Move Left' },
   { id: 'right', label: 'Move Right' },
   { id: 'jump', label: 'Jump / Double Jump' },
-  { id: 'crouch', label: 'Crouch / Slide / Plunge' },
+  { id: 'crouch', label: 'Crouch / Slide / Plunge / Drop' },
   { id: 'dash', label: 'Dash' },
   { id: 'attack', label: 'Slash' },
-  { id: 'sheathe', label: 'Sheathe / Parry (hold)' },
-  { id: 'tether', label: 'Tether (tap yank / hold zip)' },
-  { id: 'yank', label: 'Tether Yank (direct)' },
+  { id: 'sheathe', label: 'Parry stance (costs shield)' },
+  { id: 'tether', label: 'Tether (tap fling / hold zip / grab)' },
   { id: 'ultimate', label: 'Ultimate (hold)' },
   { id: 'pause', label: 'Pause' },
 ];
@@ -27,7 +26,6 @@ const DEFAULT_BINDINGS = {
   attack: ['Mouse0', ''],
   sheathe: ['KeyE', ''],
   tether: ['Mouse2', ''],
-  yank: ['KeyQ', ''],
   ultimate: ['KeyR', ''],
   pause: ['Escape', 'KeyP'],
 };
@@ -44,10 +42,10 @@ const DEFAULT_SETTINGS = {
     preset: 'normal',
     health: 1, damage: 1, speed: 1, count: 1, aggression: 1, telegraph: 1,
     maxAlive: 10, waveBreak: 4,
-    scrapper: true, gunner: true, drone: true, brute: true,
+    scrapper: true, gunner: true, drone: true, brute: true, bossEndless: true,
   },
   gameplay: { parryWindow: 0.2, ultKills: 12, invincible: false, ultimate: 'sawblade' },
-  controls: { bindings: deepClone(DEFAULT_BINDINGS), tetherTapYank: true, dropDoubleTap: true },
+  controls: { bindings: deepClone(DEFAULT_BINDINGS), dropHold: true },
   audio: { master: 0.8, sfx: 0.9, music: 0.45, muteOnBlur: true },
   visuals: {
     shake: 1, hitstop: 1, particles: 1, lookAhead: 0.35,
@@ -84,7 +82,8 @@ function applyPreset(name) {
   saveSettings();
 }
 
-const SaveData = deepMerge({ bestWave: 0, bestScore: 0, demoCleared: false }, (() => {
+// unlocks.aegis records the rival's defeat so it can become a playable character later.
+const SaveData = deepMerge({ bestWave: 0, bestScore: 0, demoCleared: false, bossKills: 0, unlocks: { aegis: false } }, (() => {
   try { return JSON.parse(safeStorageGet(SAVE_KEY) || 'null'); } catch (e) { return null; }
 })());
 function saveProgress() { safeStorageSet(SAVE_KEY, JSON.stringify(SaveData)); }
@@ -106,6 +105,7 @@ const SETTINGS_SCHEMA = {
     { type: 'toggle', key: 'enemies.gunner', label: 'Gunners (ranged)' },
     { type: 'toggle', key: 'enemies.drone', label: 'Drones (flying divers)' },
     { type: 'toggle', key: 'enemies.brute', label: 'Brutes (heavy)' },
+    { type: 'toggle', key: 'enemies.bossEndless', label: 'Rival boss every 8th endless wave' },
     { type: 'heading', label: 'Player' },
     { type: 'range', key: 'gameplay.parryWindow', label: 'Parry window', min: 0.08, max: 0.45, step: 0.01, fmt: 'ms' },
     { type: 'range', key: 'gameplay.ultKills', label: 'Kills to charge ultimate', min: 3, max: 40, step: 1, fmt: 'int' },
@@ -113,8 +113,7 @@ const SETTINGS_SCHEMA = {
   ],
   controls: [
     { type: 'bindings' },
-    { type: 'toggle', key: 'controls.tetherTapYank', label: 'Tether: tap yanks, hold zips (off = always zip)' },
-    { type: 'toggle', key: 'controls.dropDoubleTap', label: 'Double-tap crouch to drop through platforms' },
+    { type: 'toggle', key: 'controls.dropHold', label: 'Hold crouch on a platform to drop through it' },
   ],
   audio: [
     { type: 'range', key: 'audio.master', label: 'Master volume', min: 0, max: 1, step: 0.01, fmt: '%' },
