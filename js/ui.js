@@ -72,7 +72,7 @@ const UI = {
     document.getElementById('over-title').textContent = victory ? (boss ? 'Rival defeated' : 'Demo complete') : 'Signal lost';
     let sub;
     if (victory) sub = boss ? 'AEGIS-07 is down and unlocked for a future character roster.' : 'All demo waves cleared, rival included. AEGIS-07 is unlocked for a future character roster.';
-    else if (boss) sub = 'AEGIS-07 holds the street. Break the shield with its own missile.';
+    else if (boss) sub = 'AEGIS-07 holds the street. Break its shield with its own pulse grenade.';
     else if (Game.mode === 'endless') sub = `You held the street until wave ${Director.wave}.`;
     else sub = Director.wave === 0 ? 'Down before the first wave.' : `Down on wave ${Director.wave} of ${DEMO_WAVES.length}.`;
     document.getElementById('over-sub').textContent = sub;
@@ -103,7 +103,7 @@ const UI = {
       ['Parry stance (15 shield, refunded on parry)', actionLabel('sheathe')],
       ['Counter after a parry', `Release ${actionLabel('sheathe')}`],
       ['Tether: tap fling, hold zip', actionLabel('tether')],
-      ['Grab, swing and throw barrels or missiles', `Hold ${actionLabel('tether')}, release`],
+      ['Grab, swing and throw barrels or grenades', `Hold ${actionLabel('tether')}, release`],
       ['Sawblade ultimate (when charged)', `Hold ${actionLabel('ultimate')} 1s`],
       ['Pause', actionLabel('pause')],
     ];

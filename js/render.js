@@ -185,7 +185,10 @@ const Render = {
     const low = p.hp < 30 && ((t * 5) | 0) % 2;
     ctx.fillStyle = low ? '#ff8a9a' : '#ff3048'; ctx.fillRect(x, y2, Math.round((w * p.hp) / PC.MAX_HP), 4);
     ctx.fillStyle = '#ff9aa8'; ctx.fillRect(x, y2, Math.round((w * p.hp) / PC.MAX_HP), 1);
-    drawText(ctx, String(Math.ceil(p.shield)), x + w + 4, y - 1, { color: '#3ad0ff' });
+    if (p.shieldOffT > 0) {
+      ctx.fillStyle = ((t * 6) | 0) % 2 ? '#2a3a46' : '#1a2630'; ctx.fillRect(x, y, w, 4);
+      drawText(ctx, 'OFF ' + Math.ceil(p.shieldOffT), x + w + 4, y - 1, { color: '#5a7a8a' });
+    } else drawText(ctx, String(Math.ceil(p.shield)), x + w + 4, y - 1, { color: '#3ad0ff' });
     drawText(ctx, String(Math.ceil(p.hp)), x + w + 4, y2 - 1, { color: '#ff5a6a' });
     // dash charges
     for (let i = 0; i < PC.DASH_CHARGES; i++) {
@@ -311,13 +314,15 @@ const Render = {
     const k = Math.max(0, b.hp) / b.maxHp;
     ctx.fillStyle = b.stunT > 0 && ((t * 10) | 0) % 2 ? '#ffffff' : '#ff3048'; ctx.fillRect(x, y, Math.round(w * k), 4);
     ctx.fillStyle = '#ff9aa8'; ctx.fillRect(x, y, Math.round(w * k), 1);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(x + w / 2, y - 2, 1, 8);
     if (b.shield) {
       ctx.globalAlpha = 0.75;
       ctx.fillStyle = '#4af0ff';
       for (let i = 0; i < w; i += 2) if (((i + ((t * 20) | 0)) >> 1) % 3) ctx.fillRect(x + i, y, 1, 4);
       ctx.globalAlpha = 1;
-      drawText(ctx, 'SHIELDED - THROW ITS MISSILE BACK', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
+      drawText(ctx, 'SHIELDED - THROW ITS GRENADE BACK', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
     } else if (b.stunT > 0) drawText(ctx, 'STUNNED', VIEW_W / 2, y + 7, { align: 'center', color: '#ffffff' });
+    else if (b.phase === 2) drawText(ctx, b.guardT > 0 ? 'GUARDING - BAIT THE RIPOSTE AND PARRY IT' : 'LIMITERS OFF - PARRY, THEN PARRY ITS RIPOSTE', VIEW_W / 2, y + 7, { align: 'center', color: '#ff8a9a' });
     else drawText(ctx, 'SHIELD BACK IN ' + Math.ceil(b.shieldDownT), VIEW_W / 2, y + 7, { align: 'center', color: '#7a9aa6' });
   },
   drawIndicators(ctx) {

@@ -32,7 +32,7 @@ const seconds = Number(process.argv[2] || 90);
         }
         if (Math.random() < 0.05) { Input.mx = Math.random() * 480; Input.my = Math.random() * 270; }
         if (f % 1800 === 0) Game.player.ultCharge = 1;
-        // aim at hostile missiles now and then so grabbing and throwing them gets exercised
+        // aim at grenades now and then so grabbing and throwing them gets exercised
         const m = Game.projectiles.find((q) => q.tetherable && !q.dead);
         if (m && Math.random() < 0.3) { Input.mx = m.x - Game.cam.x; Input.my = m.y - Game.cam.y; }
         Game.realTime += 1 / 60;

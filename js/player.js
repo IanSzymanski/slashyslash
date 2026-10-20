@@ -9,7 +9,7 @@ const PC = {
   CROUCH_SPEED: 55, SLIDE_MIN: 100, SLIDE_BOOST: 255, SLIDE_FRICTION: 230, BULLET: 375,
   DASH_SPEED: 480, DASH_TIME: 0.14, DASH_IFRAMES: 0.3, DASH_RECHARGE: 1.0, DASH_CHARGES: 2,
   TETHER_RANGE: 230, TETHER_COST: 15, TETHER_SPEED: 1150, ZIP_SPEED: 480,
-  MAX_HP: 100, MAX_SHIELD: 50, SHIELD_DELAY: 3.0, SHIELD_RATE: 22,
+  MAX_HP: 100, MAX_SHIELD: 100, SHIELD_DELAY: 3.0, SHIELD_RATE: 38,
   PARRY_COST: 15, PARRY_CD: 0.8, PARRY_CD_HIT: 0.25, STANCE_MAX: 0.9, DROP_HOLD: 0.16, DASH_ATTACK_WINDOW: 0.14,
 };
 
@@ -44,6 +44,7 @@ class Player {
     this.spinT = 0; this.spinDur = 0; this.bulletT = 0;
     this.attack = null; this.comboStage = 0; this.comboTimer = 0; this.attackQueued = false; this.attackCD = 0;
     this.plunge = null; this.landLag = 0;
+    this.shieldOffT = 0;
     this.sheathe = null; this.parryCD = 0; this.parryFlash = 0; this.postPose = 0; this.iaido = null; this.dashEndT = 0;
     this.tether = null;
     this.ult = null; this.ultCharge = 0; this.ultHold = 0; this.ultReadyPlayed = false;
@@ -77,7 +78,7 @@ class Player {
     this.aimAngle = Math.atan2(m.y - cy, m.x - cx);
 
     const dec = (k) => { if (this[k] > 0) this[k] = Math.max(0, this[k] - dt); };
-    for (const k of ['iframes', 'hurtT', 'coyote', 'jumpBuf', 'attackCD', 'landLag', 'postPose', 'parryCD', 'parryFlash', 'dashEndT', 'dropT', 'wallJumpLock', 'landSquash', 'shieldFlash', 'spinT', 'bulletT', 'blinkT']) dec(k);
+    for (const k of ['iframes', 'hurtT', 'coyote', 'jumpBuf', 'attackCD', 'landLag', 'postPose', 'parryCD', 'parryFlash', 'dashEndT', 'shieldOffT', 'dropT', 'wallJumpLock', 'landSquash', 'shieldFlash', 'spinT', 'bulletT', 'blinkT']) dec(k);
     if (this.onGround) this.hoverAvail = true;
     if (this.dropT <= 0) this.dropThrough = false;
     if (this.dashCharges < PC.DASH_CHARGES) {
@@ -85,7 +86,7 @@ class Player {
       if (this.dashRecharge >= PC.DASH_RECHARGE) { this.dashCharges++; this.dashRecharge = 0; }
     }
     this.shieldDelay -= dt;
-    if (this.shieldDelay <= 0 && this.shield < PC.MAX_SHIELD && !this.dead) {
+    if (this.shieldDelay <= 0 && this.shieldOffT <= 0 && this.shield < PC.MAX_SHIELD && !this.dead) {
       if (!this.regenOn) { this.regenOn = true; Sound.play('shieldRegen'); }
       this.shield = Math.min(PC.MAX_SHIELD, this.shield + PC.SHIELD_RATE * dt);
     } else if (this.shieldDelay > 0) this.regenOn = false;
@@ -564,7 +565,7 @@ class Player {
       this.loops.charge.set(1);
     }
     s.parryUntil = s.t + 0.32;
-    if (!s.refunded) {
+    if (!s.refunded && this.shieldOffT <= 0) {
       s.refunded = true;
       this.shield = Math.min(PC.MAX_SHIELD, this.shield + PC.PARRY_COST);
       FX.text('+' + PC.PARRY_COST + ' SHIELD', this.x, this.y - 40, { c: '#5ad8ff', always: true, dur: 0.8, vy: -18 });
@@ -698,7 +699,7 @@ class Player {
   }
 
   // ---------- tether ----------
-  // Tap: fling yourself at the target. Hold: zip to it. Objects (barrels, missiles) are grabbed,
+  // Tap: fling yourself at the target. Hold: zip to it. Objects (barrels, pulse grenades) are grabbed,
   // towed while held, and thrown toward the cursor on release. Enemies are never pulled.
   updateTetherInput() {
     if (!Input.wasPressed('tether')) return;
@@ -957,6 +958,14 @@ class Player {
     Game.stats.damageTaken += h.dmg;
     if (this.hp <= 0) this.die();
     return 'hit';
+  }
+  // A pulse hit knocks the shield out: it drops to zero and can't recharge for a while.
+  disableShield(dur) {
+    this.shield = 0; this.shieldOffT = dur;
+    this.shieldDelay = Math.max(this.shieldDelay, dur); this.regenOn = false;
+    Sound.play('shieldBreak');
+    FX.text('SHIELD DISABLED', this.x, this.y - 34, { c: '#5ad8ff', always: true, dur: 1.2, vy: -16 });
+    FX.elec(this.x, this.cy, 14, 6, { outer: '#2ab8d8', core: '#ffffff' });
   }
   heal(n) {
     this.hp = Math.min(PC.MAX_HP, this.hp + n);

@@ -14,6 +14,8 @@ const Game = {
   toMenu() {
     this.state = 'menu';
     if (this.player) this.player.stopAllLoops();
+    for (const e of this.enemies) if (e.stopLoops) e.stopLoops();
+    Sound.stopAll();
     FX.clear();
     this.enemies = []; this.projectiles = []; this.hazards = []; this.pickups = []; this.cuts = []; this.props = [];
     this.player = new Player(470, 205);
@@ -29,6 +31,8 @@ const Game = {
     Sound.init();
     Sound.startMusic();
     if (this.player) this.player.stopAllLoops();
+    for (const e of this.enemies) if (e.stopLoops) e.stopLoops();
+    Sound.stopAll();
     this.mode = mode;
     this.state = 'playing';
     FX.clear();
@@ -52,6 +56,7 @@ const Game = {
     if (this.state !== 'playing') return;
     this.state = 'paused';
     if (this.player) { this.player.stopLoop('charge'); this.player.stopLoop('reel'); this.player.stopLoop('ult'); }
+    for (const e of this.enemies) if (e.stopLoops) e.stopLoops();
     Sound.setSlow(true);
     UI.show('pause');
   },
@@ -154,7 +159,12 @@ const Game = {
     this.updateCamera(realDt);
     if (this.overT > 0) {
       this.overT -= realDt;
-      if (this.overT <= 0) { this.state = 'over'; this.player.stopAllLoops(); this.saveBest(); UI.showOver(this.overVictory); }
+      if (this.overT <= 0) {
+        this.state = 'over'; this.player.stopAllLoops();
+        for (const e of this.enemies) if (e.stopLoops) e.stopLoops();
+        Sound.stopAll();
+        this.saveBest(); UI.showOver(this.overVictory);
+      }
     }
   },
   tick(dt) {
@@ -237,9 +247,12 @@ const Game = {
       else if (Game.state === 'paused') Game.resume();
       Input.consume();
     }
-    if (Game.state === 'playing') Game.step(realDt);
-    else if (Game.state === 'menu') { Game.menuStep(realDt); Input.consume(); }
-    else Input.consume();
+    // a bug in one frame is logged, not allowed to stop the loop
+    try {
+      if (Game.state === 'playing') Game.step(realDt);
+      else if (Game.state === 'menu') { Game.menuStep(realDt); Input.consume(); }
+      else Input.consume();
+    } catch (err) { console.error(err); Input.consume(); }
     try { Render.draw(realDt); } catch (err) { console.error(err); }
     requestAnimationFrame(frame);
   }

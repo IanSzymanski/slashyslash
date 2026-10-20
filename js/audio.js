@@ -357,10 +357,6 @@ const Sound = (() => {
       noise({ dur: 0.05, vol: 0.2, f0: 2600, f1: 900, q: 1.2 });
     },
     lockBeep(p) { tone({ type: 'square', f0: 1400 * (p.pm || 1), dur: 0.035, vol: 0.05 }); },
-    missileLaunch() {
-      noise({ dur: 0.45, vol: 0.4, f0: 300, f1: 2400, q: 0.8 });
-      tone({ type: 'sawtooth', f0: 90, f1: 320, dur: 0.35, vol: 0.06 });
-    },
     bossShieldBreak() {
       noise({ dur: 0.6, vol: 0.55, type: 'highpass', f0: 2200, rev: 0.5 });
       for (const f of [1800, 1350, 900, 600]) tone({ type: 'triangle', f0: f, f1: f * 0.4, dur: 0.5, vol: 0.08, rev: 0.4 });
@@ -378,6 +374,12 @@ const Sound = (() => {
       tone({ type: 'sawtooth', f0: 70, f1: 45, dur: 0.9, vol: 0.12, a: 0.05, rev: 0.5 });
       tone({ type: 'square', f0: 105, f1: 66, dur: 0.8, vol: 0.06 });
       crackle(0.6, 0.3, { f: 500 });
+    },
+    pulse() {
+      tone({ type: 'sine', f0: 140, f1: 30, dur: 0.7, vol: 0.9 });
+      noise({ dur: 0.5, vol: 0.5, type: 'lowpass', f0: 2600, f1: 120, rev: 0.4 });
+      for (const f of [1800, 1200]) tone({ type: 'square', f0: f, f1: f * 0.25, dur: 0.35, vol: 0.05, rev: 0.4 });
+      crackle(0.5, 0.4, { f: 600 });
     },
     beamCharge() {
       tone({ type: 'sawtooth', f0: 120, f1: 900, dur: 0.85, vol: 0.06, a: 0.05 });
@@ -401,6 +403,8 @@ const Sound = (() => {
   }
 
   // ---------- loops ----------
+  const activeLoops = new Set();
+  function stopAll() { for (const l of [...activeLoops]) l.stop(); }
   function loop(kind) {
     if (!ac) return { set() {}, stop() {} };
     const t = ac.currentTime;
@@ -486,9 +490,11 @@ const Sound = (() => {
       api = { set() {} };
     }
     let stopped = false;
+    activeLoops.add(api);
     api.stop = () => {
       if (stopped) return;
       stopped = true;
+      activeLoops.delete(api);
       const n = ac.currentTime;
       out.gain.cancelScheduledValues(n);
       out.gain.setTargetAtTime(0.0001, n, 0.04);
@@ -595,7 +601,8 @@ const Sound = (() => {
   }
 
   return {
-    init, resume, applyVolumes, setFocus, setSlow, play, loop, startMusic, setIntensity,
+    init, resume, applyVolumes, setFocus, setSlow, play, loop, stopAll, startMusic, setIntensity,
     get ready() { return !!ac; },
+    get loopCount() { return activeLoops.size; },
   };
 })();

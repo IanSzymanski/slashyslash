@@ -45,7 +45,7 @@ const Director = {
     if (this.bossWave) {
       this.scale = { hp: 1 + (n - 1) * 0.06, dmg: 1 + (n - 1) * 0.03 };
       this.waveName = 'RIVAL';
-      return ['scrapper', 'scrapper'];
+      return [];
     }
     let budget = (4 + n * 1.7) * S.enemies.count;
     const avail = ENDLESS_TYPES.filter((d) => S.enemies[d.type] && d.minWave <= n);

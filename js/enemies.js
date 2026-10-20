@@ -423,6 +423,7 @@ class Enemy {
 function hurtEnemy(e, dmg, o = {}) {
   if (e.dead || e.spawning || e.dying) return 0;
   if (e.shielded && e.shielded()) { e.shieldHit(o); return 0; }
+  if (e.intercept && e.intercept(o)) return 0;
   if (e.dodging && e.dodging()) {
     if (!e._missT || Game.time > e._missT) { e._missT = Game.time + 0.4; FX.text('DODGE', e.x, e.y - e.h - 8, { c: '#7af0ff', always: true, dur: 0.5, vy: -20 }); }
     return 0;
@@ -430,6 +431,7 @@ function hurtEnemy(e, dmg, o = {}) {
   let d = dmg * (e.damageTakenMul ? e.damageTakenMul() : 1);
   if (e.tethered) d *= 1.25;
   d = Math.max(1, Math.round(d));
+  if (e.gateDamage) d = e.gateDamage(d);
   e.hp -= d;
   e.hitFlash = 0.08;
   if (!o.noKnock) {
