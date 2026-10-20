@@ -17,13 +17,13 @@ const seconds = Number(process.argv[2] || 90);
   await page.goto('file://' + path.resolve(__dirname, '..', 'index.html'));
   await page.waitForTimeout(500);
 
-  for (const mode of ['demo', 'endless']) {
-    await page.click(mode === 'demo' ? '#btn-demo' : '#btn-endless');
+  for (const mode of ['demo', 'endless', 'boss']) {
+    await page.click({ demo: '#btn-demo', endless: '#btn-endless', boss: '#btn-boss' }[mode]);
     const res = await page.evaluate((frames) => {
       const problems = [];
       S.gameplay.invincible = true;
       S.enemies.waveBreak = 1;
-      const codes = ['KeyA', 'KeyD', 'KeyW', 'KeyS', 'ShiftLeft', 'Mouse0', 'KeyE', 'Mouse2', 'KeyQ', 'KeyR'];
+      const codes = ['KeyA', 'KeyD', 'KeyW', 'KeyS', 'ShiftLeft', 'Mouse0', 'KeyE', 'Mouse2', 'KeyR'];
       for (let f = 0; f < frames; f++) {
         for (const c of codes) {
           const held = Input.down.has(c);
@@ -32,6 +32,9 @@ const seconds = Number(process.argv[2] || 90);
         }
         if (Math.random() < 0.05) { Input.mx = Math.random() * 480; Input.my = Math.random() * 270; }
         if (f % 1800 === 0) Game.player.ultCharge = 1;
+        // aim at hostile missiles now and then so grabbing and throwing them gets exercised
+        const m = Game.projectiles.find((q) => q.tetherable && !q.dead);
+        if (m && Math.random() < 0.3) { Input.mx = m.x - Game.cam.x; Input.my = m.y - Game.cam.y; }
         Game.realTime += 1 / 60;
         Game.step(1 / 60);
         if (f % 3 === 0) Render.draw(1 / 60);
@@ -39,9 +42,10 @@ const seconds = Number(process.argv[2] || 90);
         if (!isFinite(p.x) || !isFinite(p.y) || p.x < 0 || p.x > Level.W || p.y > Level.H + 50) problems.push(`player out of bounds at frame ${f}: ${p.x},${p.y}`);
         if (problems.length) break;
       }
-      return { problems, wave: Director.wave, kills: Game.stats.kills };
+      const boss = Game.enemies.find((e) => e.isBoss);
+      return { problems, wave: Director.wave, kills: Game.stats.kills, boss: boss ? `${boss.hp}/${boss.maxHp} shield ${boss.shield}` : 'none' };
     }, seconds * 60);
-    console.log(`${mode}: wave ${res.wave}, ${res.kills} kills`);
+    console.log(`${mode}: wave ${res.wave}, ${res.kills} kills, rival ${res.boss}`);
     errors.push(...res.problems);
     await page.evaluate(() => Game.toMenu());
   }

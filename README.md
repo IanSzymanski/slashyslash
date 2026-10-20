@@ -1,6 +1,6 @@
 # SlashySlash
 
-A 2D side-scrolling action demo: a small cyborg with a red katana, fast Warframe-style movement, and an electric tether, fighting scrap gangs in a ruined city. Pixel art, sound effects and music are all generated in code, so there are no asset files.
+A 2D side-scrolling action demo: a small cyborg with a red katana, fast Warframe-style movement, and an electric tether, fighting scrap gangs and a rival cyborg in a ruined city. Pixel art, sound effects and music are all generated in code, so there are no asset files.
 
 ## Running it
 
@@ -20,7 +20,7 @@ node tools/build.js
 
 Keyboard and mouse are required. Settings and best scores are saved in the browser's local storage.
 
-A headless smoke test plays both modes with random input and fails on any page error (needs Playwright with Chromium):
+A headless smoke test plays all three modes with random input and fails on any page error (needs Playwright with Chromium):
 
 ```sh
 npm i -D playwright && npx playwright install chromium
@@ -37,15 +37,16 @@ Every binding can be changed in **Settings → Controls** (two slots per action)
 | Jump, double jump, wall jump | `W` or `Space` |
 | Crouch; slide when running | `S` |
 | Bullet jump toward the cursor | `S` + `W` (while crouching or sliding) |
-| Drop through a platform | double-tap `S` |
+| Drop through a platform | Hold `S` on it |
 | Dash (2 charges, brief invulnerability) | `Shift` + direction |
+| Dash slash | Left mouse during or right after a dash |
 | Slash combo toward the cursor | Left mouse |
-| Slide attack (360° spin) | Left mouse while sliding |
+| Ground cut with rubble spray | Left mouse while sliding |
 | Plunge with ground shockwave | Hold `S` + left mouse in the air |
-| Sheathe, charge, release to draw | Hold `E` |
-| Parry, then release for a counter | Tap `E` as a hit lands |
-| Tether: tap to yank, hold to zip | Right mouse |
-| Tether yank (direct) | `Q` |
+| Parry stance (costs 15 shield) | `E` just before a hit lands |
+| Counter after a parry | Release `E` |
+| Tether: tap to fling yourself, hold to zip | Right mouse at a target |
+| Grab, swing and throw a barrel or missile | Hold right mouse on it, release to throw |
 | Sawblade ultimate | Hold `R` for 1 second when charged |
 | Pause | `Esc` or `P` |
 
@@ -53,29 +54,32 @@ Every binding can be changed in **Settings → Controls** (two slots per action)
 
 **Combo.** Two quick slashes, then a wide third swing that lunges forward. Swings follow the cursor, keep you aloft when they connect in the air, and deflect enemy bolts.
 
-**Sheathe and iaido.** Holding `E` sheathes the blade and charges for about a second (you can hover briefly mid-air). Releasing dashes through enemies along the cursor line and ends in a large arc. At more than half charge, everything you cut freezes for a beat, then splits. A very short tap does a quick draw instead.
+**Dash slash.** Clicking during a dash, or within a moment after it, draws the blade along the cursor line, cutting everything on the path and ending in an arc.
 
-**Parry.** The first 0.2 s of a sheathe is a parry window (adjustable in settings). It blocks melee hits, drone dives, brute shockwaves and bolts, slows time, and empowers the blade. Releasing `E` then fires a counter iaido that chains lightning to up to five nearby enemies. Parried bolts fly back toward the cursor. Missing a tap-parry locks the window for 0.35 s so it can't be spammed.
+**Ground cut.** Clicking while sliding drags the blade through the street: it hits anything low in front of you and sprays rubble that damages enemies ahead.
 
-**Tether.** Fires an electric line at the cursor that sticks to enemies, barrels, walls and platforms. Each shot costs 15 shield, so the shield is both armour and fuel.
+**Parry stance.** Pressing `E` costs 15 shield and opens a parry window for the first 0.2 s (adjustable in settings). It blocks melee hits, drone dives, brute shockwaves, the rival's blade and beam, bolts and missiles. A successful parry refunds the 15 shield, slows time and empowers the blade; releasing `E` then fires a counter that chains lightning to up to five nearby enemies. Parried bolts fly back toward the cursor, and a parried missile is thrown back too. A stance without a parry does nothing and goes on a 0.8 s cooldown (0.25 s after a counter). The stance can also hover you briefly once per jump.
 
-- Tap: yank the target to you (it is stunned on arrival). Barrels thrown this way explode on enemies.
-- Hold: zip toward the target. Arriving at an enemy lands a tether strike and bounces you up. Releasing early slingshots you with your momentum.
-- Tapping on terrain flings you toward it.
-- Brutes are too heavy to yank, so the tether pulls you to them instead.
-- Tethered enemies take 25% more damage.
-- Releasing an iaido while tethered to an enemy aims the draw straight at it.
+**Tether.** Fires an electric line at the cursor. Each shot costs 15 shield, so the shield is both armour and fuel. It never pulls enemies.
 
-**Health and shield.** The shield absorbs damage first and starts refilling after 3 seconds without being hit. If a hit breaks the shield, the overflow is ignored and you get a short invulnerability window. Health only comes back from wave clears and the green pickups enemies drop.
+- Tap on an enemy or terrain: fling yourself toward it.
+- Hold: zip to the target. Arriving at an enemy lands a tether strike and bounces you up. Releasing early slingshots you with your momentum.
+- Barrels and missiles are grabbed instead: hold to swing them on the line, release to throw them at the cursor. Thrown barrels explode on enemies; thrown missiles home in on the rival.
+- Tethered enemies take 25% more damage, and a dash slash or counter released while tethered aims straight at the target.
+
+**Health and shield.** The shield (max 50) absorbs damage first and starts refilling after 3 seconds without being hit. If a hit breaks the shield, the overflow is ignored and you get a short invulnerability window. Health only comes back from wave clears and the green pickups enemies drop.
 
 **Plunge.** Damage and radius of the shockwave scale with the fall height. It lands on the first surface below you, platforms included.
 
-**Sawblade ultimate.** Kills fill the meter (brutes count triple; the kill count is adjustable). Hold `R` for a second to become a spinning electric saw for 7 seconds: invulnerable, contact damage, unlimited jumps, free tether with no range limit, and left mouse lunges toward the cursor.
+**Sawblade ultimate.** Kills fill the meter (brutes count triple; the kill count is adjustable). Hold `R` for a second to become a spinning electric saw for 7 seconds: invulnerable, contact damage, unlimited jumps, free tether with no range limit, and left mouse lunges toward the cursor. Holding the tether on an enemy latches the saw onto it until it dies or you let go, with damage that grows every tick.
+
+**The arena.** Buildings are scenery you run straight through; their roofs and balconies, plus fire escapes, girders, scaffolds and an overpass, are one-way platforms stacked about a double jump apart. Only the two boundary walls are solid, and they can be wall-jumped.
 
 ## Modes
 
-- **Wave Demo:** six scripted waves that introduce each enemy, ending in a two-brute fight. The results screen offers a jump straight into endless.
-- **Endless Survival:** waves grow in size and toughness without limit. Every fifth wave is a heavy wave with extra brutes. Your best wave and score are saved.
+- **Wave Demo:** six scripted waves that introduce each enemy, then the rival. The results screen offers a jump straight into endless.
+- **Endless Survival:** waves grow in size and toughness without limit. Every fifth wave is a heavy wave with extra brutes, and every eighth brings the rival back, tougher each time (toggle in settings). Your best wave and score are saved.
+- **Rival Fight:** straight into the AEGIS-07 fight.
 
 Enemies:
 
@@ -88,10 +92,21 @@ Enemies:
 
 A yellow `!` above an enemy means an attack is winding up.
 
+### AEGIS-07
+
+A rival cyborg built on the same skeleton, physics and power level as the player. It runs, double jumps, wall jumps, drops through platforms, dashes with invulnerability, and zips to your platform on its own tether.
+
+- **Shield:** while it is up, every attack is deflected. Its own missile is the only thing that breaks it.
+- **Missile:** a crosshair closes on you, then a heat-seeking missile launches. It is about as fast as you run, so lead it around, tether it, swing it, and throw it back (it homes in on the rival). Parrying it also sends it back.
+- **Shield down:** the rival is stunned for about three seconds and takes extra damage, then fights on unshielded and starts dodging your swings. The shield returns after ten seconds.
+- **Attacks:** a forearm gun that fires bursts while it moves, a greatblade swing up close, a tracking visor beam fired while hovering, and calls for reinforcements.
+
+Defeating it sets `SaveData.unlocks.aegis`. Its palette, weapon and name live in `CHARACTERS` in `js/rival.js`, ready for a character select.
+
 ## Settings
 
-- **Enemies:** difficulty presets plus individual sliders for health, damage, speed, count, attack frequency and wind-up time; max enemies on screen; break length between waves; per-type toggles; parry window; kills needed for the ultimate; a practice mode where you can't take damage.
-- **Controls:** rebind every action, choose whether a tether tap yanks, toggle double-tap drop-through.
+- **Enemies:** difficulty presets plus individual sliders for health, damage, speed, count, attack frequency and wind-up time; max enemies on screen; break length between waves; per-type toggles; the endless rival; parry window; kills needed for the ultimate; a practice mode where you can't take damage.
+- **Controls:** rebind every action, toggle hold-to-drop on platforms.
 - **Sound:** master, effects and music volume, mute when the window loses focus, preview sounds.
 - **Visuals:** screen shake, hit-stop, particle density, camera look-ahead, dynamic lighting, glow, screen flashes, slow-motion, damage numbers, off-screen enemy arrows, weather, CRT scanlines, integer pixel scaling, FPS counter.
 
@@ -110,13 +125,14 @@ Plain JavaScript, loaded as classic scripts so the game runs from `file://`.
 | `js/sprites.js` | Skeleton IK helpers and outlined sprite compositing |
 | `js/player.js` | Movement, combat, parry, tether, shield and the player rig |
 | `js/ultimates.js` | Ultimate ability registry and the Sawblade |
-| `js/enemies.js` | Enemy AI, projectiles, shockwaves, barrels, pickups |
-| `js/waves.js` | Demo waves and endless wave generation |
+| `js/enemies.js` | Enemy AI, projectiles, rubble, shockwaves, barrels, pickups |
+| `js/rival.js` | AEGIS-07 boss, its missile, and the `CHARACTERS` registry |
+| `js/waves.js` | Demo waves, endless wave generation, rival waves |
 | `js/render.js` | Frame composition, lighting, weather, HUD |
 | `js/ui.js` | Menus, results screen and settings panel |
 | `js/main.js` | Game state, fixed 120 Hz simulation, camera, main loop |
 
-The game renders at 480×270 and CSS scales it up with nearest-neighbour filtering. Characters are drawn each frame as skeletons of pixel lines into a scratch canvas, then composited with a 1 px outline.
+The game renders at 480×270 and CSS scales it up with nearest-neighbour filtering. Characters are drawn each frame as skeletons of pixel lines into a scratch canvas, then composited with a 1 px outline. The rival reuses the player's pose and drawing code with its own palette (`pal`), weapon (`drawKatana` override), extra parts (`drawExtras`) and action poses (`customPose`); a future playable character can plug in the same way.
 
 ### Adding an ultimate
 

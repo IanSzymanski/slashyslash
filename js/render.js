@@ -59,6 +59,7 @@ const Render = {
     Level.drawPlay(sc, cx, cy, t);
     FX.drawDecals(sc, cx, cy);
     for (const p of G.props) p.draw(sc, cx, cy);
+    for (const b of G.projectiles) if (b.draw) b.draw(sc, cx, cy);
     for (const e of G.enemies) if (!e.dead) e.draw(sc, cx, cy);
     FX.drawGhosts(sc, cx, cy);
     if (G.player) G.player.draw(sc, cx, cy);
@@ -70,7 +71,7 @@ const Render = {
     for (const e of G.enemies) if (!e.dead) e.drawEmissive(ctx, cx, cy);
     for (const h of G.hazards) h.drawEmissive(ctx, cx, cy);
     for (const pk of G.pickups) pk.drawEmissive(ctx, cx, cy);
-    for (const b of G.projectiles) b.drawEmissive(ctx, cx, cy);
+    for (const b of G.projectiles) if (b.drawEmissive) b.drawEmissive(ctx, cx, cy);
     FX.drawEmissive(ctx, cx, cy);
     if (G.player) G.player.drawEmissive(ctx, cx, cy);
     if (S.visuals.glow) this.drawGlow(ctx, cx, cy);
@@ -93,7 +94,7 @@ const Render = {
     Level.addLights(cx, cy, t);
     if (G.player) G.player.addLights();
     for (const e of G.enemies) if (!e.dead) e.addLights();
-    for (const b of G.projectiles) b.addLights();
+    for (const b of G.projectiles) if (b.addLights) b.addLights();
     for (const h of G.hazards) h.addLights();
     for (const p of G.props) if (!p.dead) p.addLights();
     for (const pk of G.pickups) pk.addLights();
@@ -200,15 +201,33 @@ const Render = {
       }
     }
     drawText(ctx, 'DASH', x + 22, y2 + 8, { color: '#7a849c' });
+    // parry stance: cooldown and shield cost
+    {
+      const px = x + 48, py = y2 + 10;
+      const cdK = p.parryCD > 0 ? 1 - p.parryCD / PC.PARRY_CD : 1;
+      const afford = p.shield >= PC.PARRY_COST || S.gameplay.invincible;
+      const flash = p.parryFlash > 0 && ((t * 20) | 0) % 2;
+      ctx.fillStyle = '#0b0910'; this.diamond(ctx, px, py, 4);
+      ctx.fillStyle = flash ? '#ff3048' : p.sheathe ? '#ffe8a0' : cdK >= 1 && afford ? '#ffd070' : '#3a2a1a'; this.diamond(ctx, px, py, 3);
+      if (cdK < 1) {
+        ctx.fillStyle = '#ffd070';
+        const hh = Math.round(cdK * 7);
+        for (let yy = 0; yy < hh; yy++) { const ry = py + 3 - yy, half = 3 - Math.abs(ry - py); if (half >= 0) ctx.fillRect(px - half, ry, half * 2 + 1, 1); }
+      }
+      drawText(ctx, 'PARRY', px + 7, y2 + 8, { color: afford ? '#7a849c' : '#5a4a4a' });
+    }
     // ultimate
     this.drawUltMeter(ctx, 22, VIEW_H - 22, p, t);
     // wave info
     const D = Director;
-    if (D.wave > 0) {
-      drawText(ctx, (G.mode === 'demo' ? 'DEMO ' : 'ENDLESS ') + 'WAVE ' + D.wave, VIEW_W / 2, 6, { align: 'center', color: '#ffd0d8' });
+    const boss = G.enemies.find((e) => e.isBoss && !e.dead && !e.spawning);
+    if (boss) this.drawBossBar(ctx, boss, t);
+    else if (D.wave > 0) {
+      const label = G.mode === 'boss' ? 'RIVAL FIGHT' : (G.mode === 'demo' ? 'DEMO ' : 'ENDLESS ') + 'WAVE ' + D.wave;
+      drawText(ctx, label, VIEW_W / 2, 6, { align: 'center', color: '#ffd0d8' });
       let sub;
       if (D.state === 'fight') sub = D.remaining() + ' HOSTILES';
-      else if (D.state === 'break') sub = D.mode === 'demo' && D.wave >= DEMO_WAVES.length ? '' : 'NEXT WAVE ' + Math.ceil(D.breakT);
+      else if (D.state === 'break') sub = D.wave >= D.lastWave() ? '' : 'NEXT WAVE ' + Math.ceil(D.breakT);
       if (sub) drawText(ctx, sub, VIEW_W / 2, 14, { align: 'center', color: '#9a8aa8' });
     }
     // score + combo
@@ -237,9 +256,9 @@ const Render = {
     if (G.mode === 'demo' && G.stats.time < 16 && !p.dead) {
       const k = G.stats.time > 13 ? 1 - (G.stats.time - 13) / 3 : 1;
       if (k > 0 && (k > 0.3 || ((t * 10) | 0) % 2)) {
-        const l1 = `${hudKey('left')}/${hudKey('right')} MOVE   ${hudKey('jump')} JUMP x2   ${hudKey('crouch')} SLIDE   ${hudKey('dash')} DASH`;
-        const l2 = `${hudKey('attack')} SLASH   ${hudKey('crouch')}+${hudKey('attack')} AIR PLUNGE   HOLD ${hudKey('sheathe')} DRAW   TAP ${hudKey('sheathe')} PARRY`;
-        const l3 = `${hudKey('tether')} TAP YANK / HOLD ZIP   HOLD ${hudKey('ultimate')} ULTIMATE`;
+        const l1 = `${hudKey('left')}/${hudKey('right')} MOVE   ${hudKey('jump')} JUMP x2   ${hudKey('crouch')} SLIDE/DROP   ${hudKey('dash')} DASH`;
+        const l2 = `${hudKey('attack')} SLASH   ${hudKey('dash')}+${hudKey('attack')} DASH SLASH   ${hudKey('crouch')}+${hudKey('attack')} PLUNGE   ${hudKey('sheathe')} PARRY`;
+        const l3 = `${hudKey('tether')} TAP FLING / HOLD ZIP / GRAB   HOLD ${hudKey('ultimate')} ULTIMATE`;
         ctx.globalAlpha = Math.min(1, k);
         ctx.fillStyle = 'rgba(8,5,12,0.6)';
         ctx.fillRect(VIEW_W / 2 - 150, VIEW_H - 40, 300, 30);
@@ -284,15 +303,33 @@ const Render = {
       drawText(ctx, 'SAWBLADE', cx + 16, cy - 2, { color: '#5a4a5a' });
     }
   },
+  drawBossBar(ctx, b, t) {
+    const w = 200, x = Math.round(VIEW_W / 2 - w / 2), y = 14;
+    drawText(ctx, b.name, VIEW_W / 2, 5, { align: 'center', color: '#bff8ff' });
+    ctx.fillStyle = '#0b0910'; ctx.fillRect(x - 1, y - 1, w + 2, 6);
+    ctx.fillStyle = '#300a12'; ctx.fillRect(x, y, w, 4);
+    const k = Math.max(0, b.hp) / b.maxHp;
+    ctx.fillStyle = b.stunT > 0 && ((t * 10) | 0) % 2 ? '#ffffff' : '#ff3048'; ctx.fillRect(x, y, Math.round(w * k), 4);
+    ctx.fillStyle = '#ff9aa8'; ctx.fillRect(x, y, Math.round(w * k), 1);
+    if (b.shield) {
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = '#4af0ff';
+      for (let i = 0; i < w; i += 2) if (((i + ((t * 20) | 0)) >> 1) % 3) ctx.fillRect(x + i, y, 1, 4);
+      ctx.globalAlpha = 1;
+      drawText(ctx, 'SHIELDED - THROW ITS MISSILE BACK', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
+    } else if (b.stunT > 0) drawText(ctx, 'STUNNED', VIEW_W / 2, y + 7, { align: 'center', color: '#ffffff' });
+    else drawText(ctx, 'SHIELD BACK IN ' + Math.ceil(b.shieldDownT), VIEW_W / 2, y + 7, { align: 'center', color: '#7a9aa6' });
+  },
   drawIndicators(ctx) {
     const cam = Game.cam;
-    for (const e of Game.enemies) {
+    const things = Game.enemies.concat(Game.projectiles.filter((b) => b.indicator && b.hostile && !b.dead));
+    for (const e of things) {
       if (e.dead) continue;
       const sx = e.x - cam.rx, sy = e.cy - cam.ry;
       if (sx > -4 && sx < VIEW_W + 4 && sy > -4 && sy < VIEW_H + 4) continue;
       const ex = clamp(sx, 8, VIEW_W - 8), ey = clamp(sy, 22, VIEW_H - 8);
       const a = Math.atan2(sy - ey, sx - ex);
-      ctx.fillStyle = e.windingUp() ? '#ffffff' : e.spawning ? '#ff9a3a' : '#ff5a3a';
+      ctx.fillStyle = e.indicator ? (((Game.realTime * 10) | 0) % 2 ? '#ffffff' : '#ff3030') : e.isBoss ? '#4af0ff' : e.windingUp() ? '#ffffff' : e.spawning ? '#ff9a3a' : '#ff5a3a';
       for (let i = 0; i < 4; i++) {
         const px = ex + Math.cos(a) * (3 - i), py = ey + Math.sin(a) * (3 - i);
         const h = i;

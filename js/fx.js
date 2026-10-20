@@ -6,6 +6,7 @@ const PALETTES = {
   gold: [[255, 255, 238], [255, 214, 120], [255, 70, 70], [150, 10, 36]],
   violet: [[250, 240, 255], [255, 120, 200], [200, 30, 110], [90, 10, 60]],
   enemy: [[255, 250, 220], [255, 200, 90], [230, 110, 40], [120, 40, 20]],
+  cyan: [[240, 255, 255], [120, 240, 255], [30, 170, 210], [10, 60, 90]],
 };
 
 const FX = {
@@ -243,6 +244,11 @@ const FX = {
           if (Math.abs(xx) / r + Math.abs(yy) / 3 > 1) continue;
           if (bayer(xx + x, yy + y) < 0.6) ctx.fillRect(x + xx, y + yy, 1, 1);
         }
+      } else if (d.kind === 'gouge') {
+        ctx.fillStyle = '#100c14';
+        pline(ctx, x, y, x + d.len, y, 1); pline(ctx, x + d.len * 0.1, y + 1, x + d.len * 0.85, y + 1, 1);
+        ctx.fillStyle = '#7a7080'; pline(ctx, x + d.len * 0.2, y - 1, x + d.len * 0.7, y - 1, 1);
+        if (d.t < 0.6) { ctx.fillStyle = d.t < 0.25 ? '#ffe0a0' : '#ff5a3a'; pline(ctx, x + d.len * 0.55, y, x + d.len, y, 1); }
       } else if (d.kind === 'oil') {
         ctx.fillStyle = d.c || '#1a1418';
         ctx.fillRect(x - ((d.sz / 2) | 0), y - 1, d.sz || 2, 1);

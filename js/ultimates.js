@@ -54,6 +54,31 @@ registerUltimate({
       FX.ring(p.x, p.cy, 3, 20, 0.2, { w: 1 });
     }
 
+    // Latched on with the tether: grind the target with damage that compounds every tick.
+    if (p.grinding()) {
+      const T = p.tether, e = T.target;
+      if (!e || e.dead || !Input.isDown('tether')) p.releaseTether();
+      else {
+        p.x = e.x; p.y = e.cy + p.h * 0.55; p.vx = 0; p.vy = 0; p.onGround = false;
+        p.facing = Math.cos(p.aimAngle) >= 0 ? 1 : -1;
+        T.grindT -= dt;
+        if (T.grindT <= 0) {
+          T.grindT = 0.1;
+          const shielded = e.shielded && e.shielded();
+          if (!shielded) T.grindN++;
+          const dmg = Math.min(150, 5 * Math.pow(1.16, T.grindN));
+          hurtEnemy(e, dmg, { cause: 'saw', noKnock: true, stagger: 0.3, hitstop: 0, angle: rand(0, TAU), crit: dmg >= 60 });
+          Sound.play('sawHit');
+          FX.sparks(p.x, p.cy, 6 + Math.min(10, T.grindN / 2), rand(0, TAU), TAU, 80, 260);
+          if (T.grindN > 8) FX.elec(p.x, p.cy, 16, 2);
+          Game.shake(Math.min(0.12, 0.02 + T.grindN * 0.004));
+        }
+        u.spin += 40 * dt * p.facing;
+        if (p.loops.saw) p.loops.saw.set(700, true);
+        if (u.t >= u.dur) this.end(p);
+        return;
+      }
+    }
     const wasGround = p.onGround;
     if (p.dashT > 0) p.moveDash(dt);
     else if (p.zipping()) p.moveZip(dt);

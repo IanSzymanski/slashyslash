@@ -240,11 +240,6 @@ const Sound = (() => {
       crackle(0.12, 0.24);
     },
     tetherMiss() { tone({ type: 'sine', f0: 620, f1: 200, dur: 0.12, vol: 0.05 }); },
-    yank() {
-      noise({ dur: 0.2, vol: 0.3, f0: 800, f1: 2600, q: 0.9 });
-      tone({ type: 'sawtooth', f0: 110, f1: 420, dur: 0.18, vol: 0.06 });
-      crackle(0.2, 0.3);
-    },
     zip() {
       noise({ dur: 0.3, vol: 0.24, f0: 300, f1: 1600, q: 0.9 });
       crackle(0.24, 0.2);
@@ -336,6 +331,58 @@ const Sound = (() => {
       tone({ type: 'square', f0: 2000, f1: 600, dur: 0.1, vol: 0.07 });
       crackle(0.12, 0.2);
     },
+    denied() {
+      tone({ type: 'square', f0: 330, dur: 0.04, vol: 0.05 });
+      tone({ type: 'square', f0: 250, dur: 0.05, vol: 0.05, delay: 0.05 });
+    },
+    unsheathe() {
+      tone({ type: 'triangle', f0: 1600, f1: 2200, dur: 0.05, vol: 0.06 });
+      noise({ dur: 0.05, vol: 0.06, type: 'highpass', f0: 3500 });
+    },
+    groundCut() {
+      noise({ dur: 0.34, vol: 0.32, f0: 1800, f1: 600, q: 1.2 });
+      crackle(0.28, 0.22, { f: 900 });
+      tone({ type: 'square', f0: 140, f1: 60, dur: 0.2, vol: 0.08 });
+    },
+    rocks() {
+      for (let i = 0; i < 5; i++) noise({ dur: 0.05, vol: 0.18, type: 'lowpass', f0: 900 + Math.random() * 1200, delay: i * 0.03 + Math.random() * 0.02 });
+      tone({ type: 'sine', f0: 120, f1: 50, dur: 0.15, vol: 0.4 });
+    },
+    throw() {
+      noise({ dur: 0.18, vol: 0.32, f0: 500, f1: 3000, q: 0.9 });
+      crackle(0.15, 0.18);
+    },
+    bossGun() {
+      tone({ type: 'square', f0: 900, f1: 220, dur: 0.05, vol: 0.06 });
+      noise({ dur: 0.05, vol: 0.2, f0: 2600, f1: 900, q: 1.2 });
+    },
+    lockBeep(p) { tone({ type: 'square', f0: 1400 * (p.pm || 1), dur: 0.035, vol: 0.05 }); },
+    missileLaunch() {
+      noise({ dur: 0.45, vol: 0.4, f0: 300, f1: 2400, q: 0.8 });
+      tone({ type: 'sawtooth', f0: 90, f1: 320, dur: 0.35, vol: 0.06 });
+    },
+    bossShieldBreak() {
+      noise({ dur: 0.6, vol: 0.55, type: 'highpass', f0: 2200, rev: 0.5 });
+      for (const f of [1800, 1350, 900, 600]) tone({ type: 'triangle', f0: f, f1: f * 0.4, dur: 0.5, vol: 0.08, rev: 0.4 });
+      tone({ type: 'sine', f0: 110, f1: 28, dur: 0.7, vol: 0.8 });
+    },
+    shieldUp() {
+      tone({ type: 'sine', f0: 300, f1: 1400, dur: 0.5, vol: 0.09, a: 0.2, rev: 0.4 });
+      crackle(0.3, 0.12);
+    },
+    shieldDeflect() {
+      tone({ type: 'triangle', f0: 2400, f1: 1800, dur: 0.08, vol: 0.07 });
+      noise({ dur: 0.04, vol: 0.12, type: 'highpass', f0: 5000 });
+    },
+    bossRoar() {
+      tone({ type: 'sawtooth', f0: 70, f1: 45, dur: 0.9, vol: 0.12, a: 0.05, rev: 0.5 });
+      tone({ type: 'square', f0: 105, f1: 66, dur: 0.8, vol: 0.06 });
+      crackle(0.6, 0.3, { f: 500 });
+    },
+    beamCharge() {
+      tone({ type: 'sawtooth', f0: 120, f1: 900, dur: 0.85, vol: 0.06, a: 0.05 });
+      crackle(0.8, 0.18);
+    },
     ui() { tone({ type: 'square', f0: 660, dur: 0.04, vol: 0.05 }); },
     uiHover() { tone({ type: 'sine', f0: 990, dur: 0.02, vol: 0.02 }); },
     gameOver() {
@@ -424,6 +471,19 @@ const Sound = (() => {
           gg.gain.setTargetAtTime(grinding ? 0.5 : 0, n, 0.03);
         },
       };
+    }
+    if (kind === 'beam') {
+      const o1 = mk(ac.createOscillator()), o2 = mk(ac.createOscillator());
+      o1.type = 'sawtooth'; o2.type = 'sawtooth'; o1.frequency.value = 110; o2.frequency.value = 113.5;
+      const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = 0.7;
+      const hiss = mk(ac.createBufferSource()); hiss.buffer = noiseBuf; hiss.loop = true;
+      const hf = ac.createBiquadFilter(); hf.type = 'highpass'; hf.frequency.value = 3000;
+      const hg = ac.createGain(); hg.gain.value = 0.35;
+      o1.connect(f); o2.connect(f); f.connect(out); hiss.connect(hf); hf.connect(hg); hg.connect(out);
+      o1.start(t); o2.start(t); hiss.start(t);
+      crackG.gain.value = 0.35;
+      out.gain.setTargetAtTime(0.14, t, 0.03);
+      api = { set() {} };
     }
     let stopped = false;
     api.stop = () => {

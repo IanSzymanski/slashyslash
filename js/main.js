@@ -16,7 +16,7 @@ const Game = {
     if (this.player) this.player.stopAllLoops();
     FX.clear();
     this.enemies = []; this.projectiles = []; this.hazards = []; this.pickups = []; this.cuts = []; this.props = [];
-    this.player = new Player(476, 220);
+    this.player = new Player(470, 205);
     this.player.facing = 1;
     this.slowScale = 1; this.slowT = 0; this.freezeT = 0;
     Sound.setSlow(false);
@@ -33,7 +33,7 @@ const Game = {
     this.state = 'playing';
     FX.clear();
     this.enemies = []; this.projectiles = []; this.hazards = []; this.pickups = []; this.cuts = []; this.props = [];
-    this.player = new Player(720, Level.GROUND);
+    this.player = new Player(1200, Level.GROUND);
     this.time = 0; this.acc = 0; this.slowScale = 1; this.slowT = 0; this.freezeT = 0; this.overT = 0;
     this.stats = { kills: 0, score: 0, maxCombo: 0, parries: 0, wave: 0, time: 0, damageTaken: 0, ults: 0 };
     this.combo = 0; this.comboT = 0; this.announcements = [];
@@ -115,7 +115,7 @@ const Game = {
     this.saveBest();
   },
   victory() {
-    SaveData.demoCleared = true;
+    if (this.mode === 'demo') SaveData.demoCleared = true;
     saveProgress();
     this.overT = 1.2;
     this.overVictory = true;

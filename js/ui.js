@@ -41,6 +41,7 @@ const UI = {
     switch (a) {
       case 'demo': Game.newRun('demo'); break;
       case 'endless': Game.newRun('endless'); break;
+      case 'boss': Game.newRun('boss'); break;
       case 'resume': Game.resume(); break;
       case 'restart': Game.newRun(Game.mode); break;
       case 'continue-endless': Game.newRun('endless'); break;
@@ -58,7 +59,7 @@ const UI = {
   },
   refreshBest() {
     const el = document.getElementById('best');
-    if (el) el.textContent = `Best endless: wave ${SaveData.bestWave} · ${SaveData.bestScore.toLocaleString()} pts${SaveData.demoCleared ? ' · Demo cleared' : ''}`;
+    if (el) el.textContent = `Best endless: wave ${SaveData.bestWave} · ${SaveData.bestScore.toLocaleString()} pts${SaveData.demoCleared ? ' · Demo cleared' : ''}${SaveData.unlocks.aegis ? ' · AEGIS-07 unlocked' : ''}`;
   },
   applyVisualToggles() {
     document.getElementById('scanlines').hidden = !S.visuals.scanlines;
@@ -67,10 +68,14 @@ const UI = {
   // ---------- results ----------
   showOver(victory) {
     const st = Game.stats;
-    document.getElementById('over-title').textContent = victory ? 'Demo complete' : 'Signal lost';
-    document.getElementById('over-sub').textContent = victory
-      ? 'All six demo waves cleared. Endless survival is open.'
-      : Game.mode === 'endless' ? `You held the street until wave ${Director.wave}.` : `Down on wave ${Director.wave} of ${DEMO_WAVES.length}.`;
+    const boss = Game.mode === 'boss';
+    document.getElementById('over-title').textContent = victory ? (boss ? 'Rival defeated' : 'Demo complete') : 'Signal lost';
+    let sub;
+    if (victory) sub = boss ? 'AEGIS-07 is down and unlocked for a future character roster.' : 'All demo waves cleared, rival included. AEGIS-07 is unlocked for a future character roster.';
+    else if (boss) sub = 'AEGIS-07 holds the street. Break the shield with its own missile.';
+    else if (Game.mode === 'endless') sub = `You held the street until wave ${Director.wave}.`;
+    else sub = Director.wave === 0 ? 'Down before the first wave.' : `Down on wave ${Director.wave} of ${DEMO_WAVES.length}.`;
+    document.getElementById('over-sub').textContent = sub;
     const mm = Math.floor(st.time / 60), ss = Math.floor(st.time % 60).toString().padStart(2, '0');
     const rows = [
       ['Wave', Director.wave], ['Kills', st.kills], ['Score', st.score.toLocaleString()],
@@ -89,14 +94,16 @@ const UI = {
       ['Jump / double jump / wall jump', actionLabel('jump')],
       ['Crouch · slide while running', actionLabel('crouch')],
       ['Bullet jump (toward cursor)', `${actionLabel('crouch')} + ${actionLabel('jump')}`],
-      ['Drop through platform', `Double-tap ${actionLabel('crouch')}`],
+      ['Drop through platform', `Hold ${actionLabel('crouch')}`],
       ['Dash (2 charges, invulnerable)', `${actionLabel('dash')} + direction`],
+      ['Dash slash', `${actionLabel('attack')} during a dash`],
       ['Slash combo (3 hits, aim with mouse)', actionLabel('attack')],
+      ['Ground cut with rubble spray', `${actionLabel('attack')} while sliding`],
       ['Plunge + shockwave (in the air)', `Hold ${actionLabel('crouch')} + ${actionLabel('attack')}`],
-      ['Sheathe, charge, release for iaido', `Hold ${actionLabel('sheathe')}`],
-      ['Parry (press as a hit lands), release to counter', `Tap ${actionLabel('sheathe')}`],
-      ['Tether: tap to yank, hold to zip', actionLabel('tether')],
-      ['Tether yank (direct)', actionLabel('yank')],
+      ['Parry stance (15 shield, refunded on parry)', actionLabel('sheathe')],
+      ['Counter after a parry', `Release ${actionLabel('sheathe')}`],
+      ['Tether: tap fling, hold zip', actionLabel('tether')],
+      ['Grab, swing and throw barrels or missiles', `Hold ${actionLabel('tether')}, release`],
       ['Sawblade ultimate (when charged)', `Hold ${actionLabel('ultimate')} 1s`],
       ['Pause', actionLabel('pause')],
     ];
