@@ -381,7 +381,7 @@ const Render = {
     const k = Math.max(0, b.hp) / b.maxHp;
     ctx.fillStyle = b.stunT > 0 && ((t * 10) | 0) % 2 ? '#ffffff' : '#ff3048'; ctx.fillRect(x, y, Math.round(w * k), 4);
     ctx.fillStyle = '#ff9aa8'; ctx.fillRect(x, y, Math.round(w * k), 1);
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(x + w / 2, y - 2, 1, 8);
+    if (!b.duel) { ctx.fillStyle = '#ffffff'; ctx.fillRect(x + w / 2, y - 2, 1, 8); }
     if (b.shield) {
       ctx.globalAlpha = 0.75;
       ctx.fillStyle = '#4af0ff';

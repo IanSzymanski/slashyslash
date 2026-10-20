@@ -65,11 +65,8 @@ class Rival extends Enemy {
     this.riseV = 0; this.ko = null; this.koT = 0;
   }
 
-  // Melee duel test mode: skip straight to the blade-only phase at half health.
-  startPhase2() {
-    this.phase = 2; this.pal = AEGIS_PAL_P2; this.shield = false; this.duel = true;
-    this.hp = Math.floor(this.maxHp / 2); this.cds.combo = 0.6;
-  }
+  // Melee duel test mode: full health, and the enrage cutscene plays as soon as it lands.
+  startDuel() { this.duel = true; }
 
   // ---------- damage hooks used by hurtEnemy ----------
   shielded() { return this.shield && !this.dying; }
@@ -197,8 +194,7 @@ class Rival extends Enemy {
         Sound.play('shockwave', { power: 0.8 });
         Sound.play('bossRoar');
         Game.shake(0.45);
-        if (this.duel) Game.announce(this.name, 'PARRY A SWING, THEN PARRY ITS RIPOSTE', '#ff6a7a', 2.6);
-        else Game.announce(this.name, 'TETHER ITS GRENADE, SLASH IT BACK', '#4af0ff', 2.6);
+        if (!this.duel) Game.announce(this.name, 'TETHER ITS GRENADE, SLASH IT BACK', '#4af0ff', 2.6);
         this.act = { kind: 'intro', t: 0 };
       }
       return;
@@ -333,7 +329,7 @@ class Rival extends Enemy {
   endEnrage() {
     Game.closeCine();
     this.act = null; this.transT = 0.3; this.cds.combo = 0.4; this.riseV = 0; this.hover = false;
-    Game.announce('PHASE 2', 'PARRY A SWING, THEN PARRY ITS RIPOSTE', '#ff6a7a', 2.2);
+    Game.announce(this.duel ? 'MELEE DUEL' : 'PHASE 2', 'PARRY A SWING, THEN PARRY ITS RIPOSTE', '#ff6a7a', 2.2);
   }
   chooseAct(p) {
     const dx = p.x - this.x, adx = Math.abs(dx), dy = p.y - this.y;
@@ -362,6 +358,7 @@ class Rival extends Enemy {
     a.t += dt;
     switch (a.kind) {
       case 'intro':
+        if (this.duel && this.phase === 1 && a.t > 0.35) { this.enterPhase2(); return { mx: 0 }; }
         if (a.t > 1.1) this.act = null;
         return { mx: 0 };
       case 'enrage': return this.runEnrage(dt, a, p);

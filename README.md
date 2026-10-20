@@ -85,7 +85,7 @@ Every binding can be changed in **Settings → Controls** (two slots per action)
 - **Wave Demo:** six scripted waves that introduce each enemy, then the rival. The results screen offers a jump straight into endless.
 - **Endless Survival:** waves grow in size and toughness without limit. Every fifth wave is a heavy wave with extra brutes, and every eighth brings the rival back, tougher each time (toggle in settings). Your best wave and score are saved.
 - **Rival Fight:** straight into the AEGIS-07 fight.
-- **Melee Duel:** a test mode that starts AEGIS-07 in its blade-only second phase at half health, for practising the parry, counter and riposte exchange. Winning plays the knockout but doesn't unlock the character.
+- **Melee Duel:** a test mode for practising the parry, counter and riposte exchange. AEGIS-07 lands, plays the enrage cutscene straight away, and fights its blade-only second phase at full health. Winning plays the knockout but doesn't unlock the character.
 
 Enemies:
 

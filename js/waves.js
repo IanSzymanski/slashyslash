@@ -69,7 +69,7 @@ const Director = {
   },
   nextWave() {
     this.wave++;
-    if (this.soloRival()) { this.bossWave = true; this.scale = { hp: 1, dmg: 1 }; this.waveName = this.mode === 'duel' ? 'PHASE 2 ONLY' : 'RIVAL'; this.queue = []; }
+    if (this.soloRival()) { this.bossWave = true; this.scale = { hp: 1, dmg: 1 }; this.waveName = this.mode === 'duel' ? 'LIMITERS OFF, FULL HEALTH' : 'RIVAL'; this.queue = []; }
     else this.queue = this.mode === 'demo' ? this.buildDemo(this.wave) : this.buildEndless(this.wave);
     this.total = this.queue.length;
     this.spawnT = this.bossWave ? 4 : 0.8;
@@ -122,7 +122,7 @@ const Director = {
     const p = Game.player;
     const x = Level.freeGroundX(clamp(p.x < Level.W / 2 ? p.x + 300 : p.x - 300, 120, Level.W - 120), 12);
     const r = new Rival(x, Level.GROUND, this.scale);
-    if (this.mode === 'duel') r.startPhase2();
+    if (this.mode === 'duel') r.startDuel();
     Game.enemies.push(r);
     Sound.play('spawn');
   },
