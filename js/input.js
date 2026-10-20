@@ -11,6 +11,8 @@ const Input = {
   captureCb: null,
   canvas: null,
   gameKeysActive: () => false,
+  // cutscenes lock every game action except pause
+  locked: false,
 
   init(canvas) {
     this.canvas = canvas;
@@ -70,9 +72,10 @@ const Input = {
     return code === 'Space' || code.startsWith('Arrow');
   },
   codes(action) { return S.controls.bindings[action] || []; },
-  isDown(action) { for (const c of this.codes(action)) if (c && this.down.has(c)) return true; return false; },
-  wasPressed(action) { for (const c of this.codes(action)) if (c && this.pressed.has(c)) return true; return false; },
-  wasReleased(action) { for (const c of this.codes(action)) if (c && this.released.has(c)) return true; return false; },
+  blocked(action) { return this.locked && action !== 'pause'; },
+  isDown(action) { if (this.blocked(action)) return false; for (const c of this.codes(action)) if (c && this.down.has(c)) return true; return false; },
+  wasPressed(action) { if (this.blocked(action)) return false; for (const c of this.codes(action)) if (c && this.pressed.has(c)) return true; return false; },
+  wasReleased(action) { if (this.blocked(action)) return false; for (const c of this.codes(action)) if (c && this.released.has(c)) return true; return false; },
   consume() { this.pressed.clear(); this.released.clear(); },
   clear() {
     for (const c of this.down) this.released.add(c);

@@ -118,7 +118,7 @@ const Director = {
   },
   spawnRival() {
     const p = Game.player;
-    const x = clamp(p.x < Level.W / 2 ? p.x + 300 : p.x - 300, 120, Level.W - 120);
+    const x = Level.freeGroundX(clamp(p.x < Level.W / 2 ? p.x + 300 : p.x - 300, 120, Level.W - 120), 12);
     Game.enemies.push(new Rival(x, Level.GROUND, this.scale));
     Sound.play('spawn');
   },

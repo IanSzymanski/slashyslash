@@ -72,7 +72,7 @@ class Player {
   // ================= update =================
   update(dt) {
     this.animT += dt;
-    const m = Game.mouseWorld();
+    const C = Game.cine, m = C && C.focus && Input.locked ? { x: C.focus.x, y: C.focus.cy } : Game.mouseWorld();
     this.aimX = m.x; this.aimY = m.y;
     const [cx, cy] = this.chest();
     this.aimAngle = Math.atan2(m.y - cy, m.x - cx);
@@ -111,14 +111,16 @@ class Player {
     if (Input.wasPressed('jump')) this.jumpBuf = PC.JUMP_BUF;
     if (Input.wasReleased('jump') && this.vy < 0 && this.jumpCuttable) { this.vy *= PC.JUMP_CUT; this.jumpCuttable = false; }
 
-    const wasGround = this.onGround, preVy = this.vy;
+    const wasGround = this.onGround, preVy = this.vy, preVx = this.vx;
     if (this.dashT > 0) this.moveDash(dt);
     else if (this.iaido) this.moveIaido(dt);
+    else if (this.rebounding()) this.moveRebound(dt);
     else if (this.zipping()) this.moveZip(dt);
     else if (this.plunge) this.movePlunge(dt, mx);
     else this.moveNormal(dt, mx, up, down);
 
-    const col = Level.moveBody(this, dt, { step: this.plunge ? 0 : 11 });
+    const flash = this.dashT > 0 || !!this.iaido || this.zipping() || this.rebounding();
+    const col = Level.moveBody(this, dt, { step: this.plunge ? 0 : 11, ghostCover: flash });
     if (col.ground && !wasGround) this.onLand(preVy);
     if (!col.ground && wasGround && this.vy >= 0) this.coyote = PC.COYOTE;
     if (this.zipping() && (col.wallL || col.wallR || col.ceil || col.ground) && this.tether.kind === 'world') {
@@ -126,6 +128,7 @@ class Player {
       if (Math.hypot(T.x - this.x, T.y - this.cy) < 26) this.arriveZip();
     }
     if (this.iaido && (col.wallL || col.wallR)) this.iaido.t = this.iaido.dur;
+    if ((col.wallL || col.wallR) && mx && !down) this.tryVault(col.wallR ? 1 : -1, mx, preVx);
 
     this.updateAttack(dt);
     this.updateScarf(dt);
@@ -137,6 +140,17 @@ class Player {
     }
   }
 
+  // Running into low cover hops you over it; hold crouch to stay behind it.
+  tryVault(dir, mx, preVx) {
+    if (mx !== dir || !this.onGround || this.attack || this.sheathe || this.dashT > 0 || this.iaido || this.plunge || this.zipping()) return;
+    if (!Level.coverAhead(this, dir)) return;
+    if (this.sliding || this.crouching) { this.sliding = false; this.crouching = false; if (!this.setHeight(PC.H)) return; }
+    this.vy = -250; this.vx = dir * Math.max(Math.abs(preVx), 130);
+    this.onGround = false; this.coyote = 0; this.jumpCuttable = false;
+    this.spinT = 0.34; this.spinDur = 0.34;
+    Sound.play('jump');
+    FX.dust(this.x + dir * 4, this.y, 4, { smax: 40, rise: 4 });
+  }
   moveNormal(dt, mx, up, down) {
     // crouch / slide on the ground
     if (this.onGround) {
@@ -426,10 +440,11 @@ class Player {
         }
       }
       for (const b of Game.projectiles) {
-        if (b.dead || !b.hostile || a.hit.has(b) || !b.reflect) continue;
+        if (b.dead || !b.hostile || a.hit.has(b) || !(b.reflect || b.onSlash)) continue;
         const dx = b.x - cx, dy = b.y - cy;
         if (dx * dx + dy * dy < reach * reach && Math.abs(angDiff(a.ang, Math.atan2(dy, dx))) < a.span / 2) {
           a.hit.add(b);
+          if (b.onSlash) { b.onSlash(this); continue; }
           b.reflect(this.aimAngle, 1.5, 22);
           Sound.play('reflect');
         }
@@ -600,7 +615,7 @@ class Player {
     }
     if (this.tether) this.releaseTether();
     const dx = Math.cos(ang), dy = Math.sin(ang);
-    const t = Level.raycast(sx, sy, sx + dx * (len + 8), sy + dy * (len + 8));
+    const t = Level.raycastBody(sx, sy, sx + dx * (len + 8), sy + dy * (len + 8));
     len = Math.max(0, (len + 8) * t - 8);
     this.facing = dx >= 0 ? 1 : -1;
     this.iaido = { t: 0, dur: 0.09, ang, cfg, len, sx, sy, hit: new Set(), vx: (dx * len) / 0.09, vy: (dy * len) / 0.09 };
@@ -647,7 +662,9 @@ class Player {
       if (!pr.dead && sectorRect(cx, cy, cfg.arcR, I.ang, cfg.span, pr.x - pr.w / 2, pr.y - pr.h, pr.w, pr.h)) pr.hit(60, { kx: Math.cos(I.ang) * 260, ky: -150, heavy: true });
     }
     for (const b of Game.projectiles) {
-      if (!b.dead && b.hostile && b.reflect && dist(b.x, b.y, cx, cy) < cfg.arcR) b.reflect(I.ang, 1.6, 30);
+      if (b.dead || !b.hostile || dist(b.x, b.y, cx, cy) >= cfg.arcR) continue;
+      if (b.onSlash) b.onSlash(this);
+      else if (b.reflect) b.reflect(I.ang, 1.6, 30);
     }
     if (cfg.delayed && I.hit.size) {
       Game.slowmo(0.35, 0.36);
@@ -704,7 +721,7 @@ class Player {
   updateTetherInput() {
     if (!Input.wasPressed('tether')) return;
     if (this.tether) {
-      if (this.tether.phase === 'attached' && this.tether.mode !== 'tow') this.releaseTether();
+      if (this.tether.phase === 'attached' && this.tether.mode !== 'tow' && this.tether.mode !== 'rebound') this.releaseTether();
       return;
     }
     if (this.sheathe || this.iaido || this.ultHold > 0) return;
@@ -724,20 +741,34 @@ class Player {
     this.tether = {
       phase: 'fly', x: hx, y: hy, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, dist: 0, max: free ? 4000 : PC.TETHER_RANGE,
       target: null, kind: null, ox: 0, oy: 0, mode: null, firedAt: Game.time, t: 0, spd: 0,
+      // a grenade near the cursor pulls the line onto it, since it moves while the line travels
+      homing: this.grenadeNearAim(free),
     };
     this.facing = Math.cos(a) >= 0 ? 1 : -1;
     Sound.play('tetherFire');
     FX.sparks(hx, hy, 4, a, 0.8, 60, 180);
   }
+  grenadeNearAim(free) {
+    const [hx, hy] = this.hand();
+    let best = null, bd = 34;
+    for (const o of Game.projectiles) {
+      if (!o.rebound || !o.tetherable) continue;
+      const d = dist(o.x, o.y, this.aimX, this.aimY);
+      if (d < bd && (free || dist(o.x, o.y, hx, hy) < PC.TETHER_RANGE + 30)) { bd = d; best = o; }
+    }
+    return best;
+  }
   releaseTether() {
     const T = this.tether;
     if (!T) return;
+    if (T.mode === 'rebound' && T.phase === 'attached') Game.endBulletTime();
     this.stopLoop('reel');
     if (T.target && T.target.tethered) T.target.tethered = false;
     T.phase = 'retract'; T.t = 0;
   }
   zipping() { return !!this.tether && this.tether.phase === 'attached' && this.tether.mode === 'zip'; }
   grinding() { return !!this.tether && this.tether.phase === 'attached' && this.tether.mode === 'grind'; }
+  rebounding() { return !!this.tether && this.tether.phase === 'attached' && this.tether.mode === 'rebound'; }
   attachTether(target, kind) {
     const T = this.tether;
     T.phase = 'attached'; T.t = 0; T.target = target; T.kind = kind;
@@ -746,6 +777,7 @@ class Player {
     FX.sparks(T.x, T.y, 8, rand(0, TAU), TAU, 40, 150);
     FX.elec(T.x, T.y, 10, 3);
     FX.light(T.x, T.y, 30, '#ff3048', 0.9, 0.2);
+    if (kind === 'grenade') { this.beginRebound(target); return; }
     if (kind === 'object') {
       T.mode = 'tow';
       if (target.grab) target.grab(this);
@@ -761,7 +793,7 @@ class Player {
     }
     const grab = (o) => !o.dead && o.tetherable !== false && o.grabR && dist(T.x, T.y, o.cx, o.cy) < o.grabR + 3;
     for (const o of Game.props) if (grab(o)) { this.attachTether(o, 'object'); return true; }
-    for (const o of Game.projectiles) if (o.tetherable && grab(o)) { this.attachTether(o, 'object'); return true; }
+    for (const o of Game.projectiles) if (o.tetherable && grab(o)) { this.attachTether(o, o.rebound ? 'grenade' : 'object'); return true; }
     return false;
   }
   updateTether(dt) {
@@ -770,12 +802,17 @@ class Player {
     T.t += dt;
     const [hx, hy] = this.hand();
     if (T.phase === 'fly') {
+      const h = T.homing;
+      if (h && !h.dead && h.tetherable) {
+        const sp0 = Math.hypot(T.vx, T.vy), ha = Math.atan2(h.y - T.y, h.x - T.x);
+        T.vx = Math.cos(ha) * sp0; T.vy = Math.sin(ha) * sp0;
+      }
       const sp = Math.hypot(T.vx, T.vy), steps = Math.max(1, Math.ceil((sp * dt) / 4));
       for (let i = 0; i < steps; i++) {
         T.x += (T.vx * dt) / steps; T.y += (T.vy * dt) / steps; T.dist += (sp * dt) / steps;
         if (this.tetherHit(T)) return;
         let hitWorld = Level.pointSolid(T.x, T.y, undefined, true);
-        if (!hitWorld) for (const p of Level.platforms) if (T.x >= p.x && T.x < p.x + p.w && T.y >= p.y && T.y < p.y + 5) { hitWorld = true; break; }
+        if (!hitWorld && !(h && !h.dead)) for (const p of Level.platforms) if (T.x >= p.x && T.x < p.x + p.w && T.y >= p.y && T.y < p.y + 5) { hitWorld = true; break; }
         if (hitWorld) {
           T.x -= (T.vx * dt) / steps; T.y -= (T.vy * dt) / steps;
           this.attachTether(null, 'world');
@@ -789,7 +826,7 @@ class Player {
     } else if (T.phase === 'attached') {
       if (T.target) {
         if (T.target.dead) { this.releaseTether(); return; }
-        if (T.kind === 'object') { T.x = T.target.cx; T.y = T.target.cy; }
+        if (T.kind === 'object' || T.kind === 'grenade') { T.x = T.target.cx; T.y = T.target.cy; }
         else { T.x = T.target.x + T.ox; T.y = T.target.y + T.oy; }
         if (T.target.isEnemy && Math.random() < 0.35) FX.elec(T.x, T.y, 9, 1);
       }
@@ -798,6 +835,7 @@ class Player {
         if (!Input.isDown('tether') || T.t > 5) this.throwTowed();
         return;
       }
+      if (T.mode === 'rebound') return;
       if (!T.mode) {
         const held = Input.isDown('tether'), since = Game.time - T.firedAt;
         if (!held) T.mode = 'fling';
@@ -880,6 +918,71 @@ class Player {
     this.releaseTether();
   }
 
+  // Tethering a pulse grenade in flight: time slows, you reel yourself to it and slash it toward the cursor.
+  beginRebound(g) {
+    const T = this.tether;
+    T.mode = 'rebound'; T.spd = Math.max(260, Math.hypot(this.vx, this.vy));
+    g.catch(this);
+    if (this.sheathe) this.cancelSheathe();
+    this.attack = null; this.attackQueued = false; this.plunge = null; this.dashT = 0;
+    if (this.sliding || this.crouching) { this.sliding = false; this.crouching = false; this.setHeight(PC.H) || this.setHeight(PC.SLIDE_H); }
+    this.onGround = false;
+    this.iframes = Math.max(this.iframes, 0.6);
+    Game.bulletTime(1.6);
+    Sound.play('timeSlow');
+    FX.ring(g.x, g.y, 2, 34, 0.35, { c: '#4af0ff', core: '#ffffff', w: 1 });
+    FX.ring(g.x, g.y, 40, 8, 0.3, { c: '#ffd070', core: '#ffffff', w: 1 });
+    FX.elec(g.x, g.y, 18, 6, { outer: '#2ab8d8', core: '#ffffff' });
+  }
+  moveRebound(dt) {
+    const T = this.tether, g = T.target;
+    const [cx, cy] = this.chest();
+    const dx = T.x - cx, dy = T.y - cy, d = Math.hypot(dx, dy) || 1;
+    T.spd = Math.min(this.ult ? 1100 : 820, T.spd + 3600 * dt);
+    this.vx = (dx / d) * T.spd; this.vy = (dy / d) * T.spd;
+    this.facing = dx >= 0 ? 1 : -1;
+    this.ghostT -= dt;
+    if (this.ghostT <= 0) { this.ghostT = 0.02; this.makeGhost('#ffd070', 0.3, 0.5); }
+    if (d < 16) this.reboundSlash();
+    else if (T.t > 0.6) { if (d < 40) this.reboundSlash(); else this.releaseTether(); }
+    else if (!g || g.dead) this.releaseTether();
+  }
+  reboundSlash() {
+    const T = this.tether, g = T.target, ang = this.aimAngle;
+    g.bat(ang, this);
+    this.releaseTether();
+    Game.endBulletTime();
+    if (this.ult) {
+      FX.swoosh({ x: this.x, y: this.cy, r: 30, span: 3.6, ang, dir: this.facing, sweep: 0.06, dur: 0.24, thick: 12, pal: PALETTES.gold, trail: 1 });
+    } else {
+      this.startSwing(3);
+      FX.swoosh({ x: this.x, y: this.cy, follow: this, ox: 0, oy: this.cy - this.y, r: 44, span: 3.4, ang, dir: this.attack.dir, sweep: 0.08, dur: 0.3, thick: 14, pal: PALETTES.gold, trail: 1 });
+    }
+    this.vx = Math.cos(ang) * 60; this.vy = -150;
+    this.airJumps = 1; this.hoverAvail = true;
+    this.iframes = Math.max(this.iframes, 0.3);
+    FX.slashLine(g.x - Math.cos(ang) * 14, g.y - Math.sin(ang) * 14, g.x + Math.cos(ang) * 46, g.y + Math.sin(ang) * 46, { w: 4, dur: 0.3, pal: PALETTES.gold });
+    FX.ring(g.x, g.y, 3, 26, 0.25, { c: '#ffd070', core: '#ffffff', w: 2 });
+    FX.sparks(g.x, g.y, 24, ang, 0.9, 120, 380, { c0: '#ffffff', c1: '#ffe080', c2: '#ff5a3a' });
+    FX.text('REBOUND', g.x, g.y - 16, { c: '#ffd070', always: true, dur: 0.8, vy: -24 });
+    FX.flash('#ffffff', 0.22);
+    Sound.play('rebound');
+    Game.hitstop(0.07);
+    Game.shake(0.35);
+  }
+  // The rival's phase change throws you clear. Pure knockback, no damage.
+  blastAway(x, power = 1) {
+    if (this.dead) return;
+    if (this.tether) this.releaseTether();
+    if (this.sheathe) this.cancelSheathe();
+    this.attack = null; this.attackQueued = false; this.plunge = null; this.iaido = null; this.dashT = 0; this.sliding = false;
+    if (this.crouching && this.setHeight(PC.H)) this.crouching = false;
+    const dir = sign(this.x - x) || -this.facing;
+    this.vx = dir * 430 * power; this.vy = -260 * power; this.onGround = false;
+    this.hurtT = 0.45; this.facing = -dir;
+    FX.sparks(this.x, this.cy, 12, dir > 0 ? 0 : Math.PI, 1.2, 60, 220, { c0: '#ffffff', c1: '#ff6a7a', c2: '#145e6a' });
+  }
+
   // ---------- ultimate ----------
   updateUltHold(dt) {
     const ready = this.ultCharge >= 1;
@@ -916,7 +1019,7 @@ class Player {
 
   // ---------- damage ----------
   takeHit(h) {
-    if (this.dead) return 'ignored';
+    if (this.dead || Game.cineActive()) return 'ignored';
     if (this.ult) return 'immune';
     if (this.parryActive()) { this.doParry(h); return 'parried'; }
     if (this.iframes > 0 || this.iaido) return 'ignored';
@@ -1148,7 +1251,7 @@ class Player {
     const g = Sprite.begin(this.facing);
     const tr = o.tremble ? (Math.random() < 0.5 ? -1 : 1) * (Math.random() < 0.5 ? 1 : 0) : 0;
     if (this.landSquash > 0) o.hipY += 1.5;
-    const pivotY = -10;
+    const pivotY = o.pivotY !== undefined ? o.pivotY : -10;
     const R = (x, y) => rotPt(x, y, 0, pivotY, o.rot);
     const hip = [o.hipX + tr, o.hipY];
     const neck = [hip[0] + Math.sin(o.lean) * 7, hip[1] - Math.cos(o.lean) * 7];

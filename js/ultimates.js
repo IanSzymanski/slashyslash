@@ -38,7 +38,8 @@ registerUltimate({
 
   update(p, dt) {
     const u = p.ult;
-    u.t += dt; u.lungeCD -= dt; u.jumpCD -= dt; u.lungeT -= dt;
+    if (!Game.cineActive()) u.t += dt;
+    u.lungeCD -= dt; u.jumpCD -= dt; u.lungeT -= dt;
     const mx = (Input.isDown('right') ? 1 : 0) - (Input.isDown('left') ? 1 : 0);
     const up = Input.isDown('jump'), down = Input.isDown('crouch');
     if (Input.wasPressed('dash')) p.tryDash(mx, up, down);
@@ -81,6 +82,7 @@ registerUltimate({
     }
     const wasGround = p.onGround;
     if (p.dashT > 0) p.moveDash(dt);
+    else if (p.rebounding()) p.moveRebound(dt);
     else if (p.zipping()) p.moveZip(dt);
     else if (u.lungeT > 0) p.vy += 300 * dt;
     else {
@@ -97,7 +99,7 @@ registerUltimate({
       }
     }
     const pvx = p.vx, pvy = p.vy;
-    const col = Level.moveBody(p, dt, { step: 11 });
+    const col = Level.moveBody(p, dt, { step: 11, ghostCover: p.dashT > 0 || p.zipping() || p.rebounding() });
     if ((col.wallL || col.wallR) && Math.abs(pvx) > 160 && !p.zipping()) {
       p.vx = -pvx * 0.45;
       FX.sparks(p.x + (col.wallR ? 6 : -6), p.cy, 10, col.wallR ? Math.PI : 0, 1.6, 60, 220);
@@ -134,7 +136,7 @@ registerUltimate({
       if (!pr.dead && circleRect(cx, cy, R, pr.x - pr.w / 2, pr.y - pr.h, pr.w, pr.h)) pr.hit(30, { kx: p.vx * 0.5, ky: -150, heavy: true });
     }
     for (const b of Game.projectiles) {
-      if (!b.dead && b.hostile && dist(b.x, b.y, cx, cy) < R + 3) { b.dead = true; FX.sparks(b.x, b.y, 6, 0, TAU, 40, 140); }
+      if (!b.dead && b.hostile && !b.rebound && dist(b.x, b.y, cx, cy) < R + 3) { b.dead = true; FX.sparks(b.x, b.y, 6, 0, TAU, 40, 140); }
     }
     // grinding sparks on surfaces
     const wallL = Level.touchingWall(p, -1), wallR = Level.touchingWall(p, 1);

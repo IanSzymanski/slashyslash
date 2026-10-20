@@ -2,9 +2,11 @@
 // AEGIS-07: a rival cyborg on the player's own rig and movement model (run, double jump, wall jump,
 // dash with i-frames, platform drops, tether zip).
 // Phase 1 (above half health): shielded, with a forearm gun, a tracking visor beam, the greatblade,
-// and a pulse grenade that must be thrown back to break the shield.
+// and a pulse grenade that must be tethered and slashed back to break the shield.
+// At half health it blasts the player away and enrages in a short cutscene.
 // Phase 2: shield and ranged weapons go offline and it fights in melee combos. Parry one of its
 // attacks and it guards against your counter, parries it and ripostes; parry the riposte to stun it.
+// The last hit plays a slow-motion knockout cutscene and leaves it lying in the street.
 // Its character definition lives in CHARACTERS so it can be made playable once unlocked.
 
 const AEGIS_PAL = {
@@ -13,6 +15,7 @@ const AEGIS_PAL = {
   blade: '#d4dbe6', edge: '#4af0ff', handle: '#10202a', tsuba: '#8aa0b8', sheath: '#16303a', sheathD: '#22505c',
 };
 const AEGIS_PAL_P2 = Object.assign({}, AEGIS_PAL, { visor: '#ffffff', core: '#ffffff', edge: '#ff6a7a', scarf: '#bff8ff' });
+const AEGIS_PAL_KO = Object.assign({}, AEGIS_PAL, { visor: '#1a2a34', core: '#22303a', edge: '#3a4a5a', scarf: '#2a6a74' });
 
 const CHARACTERS = {
   ronin: { id: 'ronin', name: 'RONIN', pal: PCOL, weapon: 'katana', unlocked: () => true },
@@ -59,6 +62,7 @@ class Rival extends Enemy {
     this.act = null; this.hover = false; this.beam = null; this.grenade = null; this.beamLoop = null;
     this.dodged = new WeakSet(); this.dying = false; this.dyingT = 0; this.boomT = 0;
     this.kite = chance(0.5) ? 1 : -1;
+    this.riseV = 0; this.ko = null; this.koT = 0;
   }
 
   // ---------- damage hooks used by hurtEnemy ----------
@@ -104,7 +108,7 @@ class Rival extends Enemy {
     this.shield = true;
     FX.ring(this.x, this.cy, 30, 6, 0.4, { c: '#4af0ff', core: '#ffffff', w: 1 });
     Sound.play('shieldUp');
-    Game.announce('SHIELD RESTORED', 'THROW ITS GRENADE BACK', '#4af0ff', 1.3, true);
+    Game.announce('SHIELD RESTORED', 'TETHER ITS GRENADE, SLASH IT BACK', '#4af0ff', 1.3, true);
   }
   pulseHit() {
     if (this.dying || this.transT > 0) return;
@@ -187,7 +191,7 @@ class Rival extends Enemy {
         Sound.play('shockwave', { power: 0.8 });
         Sound.play('bossRoar');
         Game.shake(0.45);
-        Game.announce(this.name, 'TETHER ITS GRENADE AND THROW IT BACK', '#4af0ff', 2.6);
+        Game.announce(this.name, 'TETHER ITS GRENADE, SLASH IT BACK', '#4af0ff', 2.6);
         this.act = { kind: 'intro', t: 0 };
       }
       return;
@@ -228,23 +232,101 @@ class Rival extends Enemy {
       if (this.ghostT <= 0) { this.ghostT = 0.025; this.makeGhost(this.phase === 2 ? '#ff6a7a' : '#2ab8d8', 0.22, 0.5); }
     }
   }
+  // Half health: a shockwave throws the player clear, then the enrage cutscene plays.
   enterPhase2() {
-    this.phase = 2; this.pal = AEGIS_PAL_P2;
-    const hadShield = this.shield;
-    this.shield = false; this.stunT = 0; this.flinchT = 0;
-    this.act = { kind: 'limiter', t: 0 }; this.attack = null; this.beam = null; this.hover = false; this.tether = null;
-    this.transT = 1.4; this.cds.combo = 0.2;
+    this.phase = 2;
+    const hadShield = this.shield, p = Game.player;
+    this.shield = false; this.stunT = 0; this.flinchT = 0; this.guardT = 0; this.parryInvulnT = 0;
+    this.attack = null; this.beam = null; this.hover = false; this.tether = null; this.lungeT = 0; this.dashT = 0; this.riseV = 0;
+    this.act = { kind: 'enrage', t: 0, done: {}, stage: 'brace' };
+    this.transT = 99; this.cds.combo = 0.4;
     this.stopLoops();
-    FX.ring(this.x, this.cy, 4, 80, 0.5, { c: '#ff6a7a', core: '#ffffff', w: 2 });
-    if (hadShield) FX.ring(this.x, this.cy, 20, 4, 0.3, { c: '#4af0ff', core: '#ffffff', w: 1 });
-    FX.sparks(this.x, this.cy, 40, 0, TAU, 80, 300, { c0: '#ffffff', c1: '#ff6a7a', c2: '#145e6a' });
-    FX.elec(this.x, this.cy, 34, 12, { outer: '#ff6a7a', core: '#ffffff' });
-    FX.flash('#ffffff', 0.35);
-    Sound.play('bossRoar');
+    // anything still in the air fizzles out
+    for (const b of Game.projectiles) {
+      if (b.dead || !(b.hostile || b.owner === this)) continue;
+      b.dead = true;
+      FX.sparks(b.x, b.y, 6, 0, TAU, 40, 140, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a' });
+    }
+    const cx = this.x, cy = this.cy;
+    FX.ring(cx, cy, 6, 150, 0.55, { c: '#ff6a7a', core: '#ffffff', w: 3 });
+    FX.ring(cx, cy, 4, 100, 0.45, { c: '#4af0ff', core: '#ffffff', w: 2 });
+    FX.ring(cx, this.y - 1, 6, 130, 0.5, { sy: 0.3, c: '#ff6a7a', core: '#ffd0d8', w: 2 });
+    if (hadShield) FX.sparks(cx, cy, 40, 0, TAU, 120, 360, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a' });
+    FX.sparks(cx, cy, 30, 0, TAU, 80, 300, { c0: '#ffffff', c1: '#ff6a7a', c2: '#145e6a' });
+    FX.dust(cx, this.y, 24, { smin: 60, smax: 200, rise: 6, r1: 6 });
+    FX.light(cx, cy, 220, '#ff6a7a', 1, 0.5);
+    FX.flash('#ffffff', 0.45);
     Sound.play('bossShieldBreak');
-    Game.slowmo(0.3, 0.6);
-    Game.shake(0.6);
-    Game.announce('LIMITERS OFF', 'NO SHIELD, NO GUNS. PARRY, THEN PARRY ITS RIPOSTE', '#ff6a7a', 2.6);
+    Sound.play('shockwave', { power: 1 });
+    Game.shake(0.7);
+    Game.hitstop(0.1);
+    p.blastAway(this.x, clamp(1.25 - Math.abs(p.x - this.x) / 320, 0.35, 1));
+    if (!p.dead) Game.startCine({ kind: 'enrage', focus: this, owner: this });
+  }
+  runEnrage(dt, a, p) {
+    const C = Game.cine, own = C && C.owner === this, ct = own ? C.t : a.t;
+    const once = (k) => (a.done[k] ? false : (a.done[k] = true));
+    this.facing = sign(p.x - this.x) || this.facing;
+    const [cx, cy] = this.chest();
+    if (ct < 0.55) a.stage = 'brace';
+    else if (ct < 1.75) {
+      a.stage = 'charge';
+      if (once('rise')) { this.hover = true; this.onGround = false; Sound.play('enrageCharge'); }
+      this.riseV = ct < 1.4 ? -16 : 0;
+      if (Math.random() < 0.7) FX.elec(cx, cy, 12 + (ct - 0.55) * 16, 1, { outer: '#ff6a7a', core: '#ffffff' });
+      if (Math.random() < 0.5) FX.sparks(this.x + rand(-8, 8), this.y, 1, -Math.PI / 2, 0.6, 40, 140, { c0: '#ffffff', c1: '#ff6a7a', c2: '#145e6a', g: -120 });
+      [0.8, 1.05, 1.3].forEach((tt, i) => { if (ct >= tt && once('pop' + i)) this.limiterPop(i); });
+    } else if (ct < 2.85) {
+      a.stage = 'roar';
+      if (once('roar')) this.roar();
+      this.riseV = 0;
+      if (Math.random() < 0.8) FX.sparks(cx, cy, 2, rand(0, TAU), TAU, 80, 260, { c0: '#ffffff', c1: '#ff6a7a', c2: '#5a0c1a' });
+      if (Math.random() < 0.35) { const ang = rand(0, TAU); FX.bolt(cx, cy, cx + Math.cos(ang) * 40, cy + Math.sin(ang) * 40, 0.08, { outer: '#ff3a52', core: '#ffffff', jag: 6 }); }
+      Game.shake(0.012);
+    } else {
+      a.stage = 'land';
+      if (once('drop')) { this.hover = false; this.riseV = 0; this.vy = 260; if (own) C.zoom = 1; }
+      if (this.onGround && once('slam')) {
+        FX.dust(this.x, this.y, 18, { smin: 40, smax: 150, rise: 6, r1: 5 });
+        FX.debris(this.x, this.y - 1, 12, ['#4a4252', '#5c5464', '#3a3442'], 180);
+        FX.decal('crack', this.x, this.y, { len: 24, n: 7, dur: 8 });
+        FX.ring(this.x, this.y - 1, 4, 70, 0.4, { sy: 0.3, c: '#ff6a7a', core: '#ffd0d8', w: 2 });
+        Sound.play('slam'); Sound.play('thud');
+        Game.shake(0.45);
+      }
+      if (ct >= 3.4 && once('close')) this.endEnrage();
+    }
+    return { mx: 0 };
+  }
+  limiterPop(i) {
+    const spots = [[-5, -18], [4, -15], [-3, -9]], [ox, oy] = spots[i % 3];
+    const x = this.x + ox * this.facing, y = this.y + oy;
+    FX.debris(x, y, 6, ['#3c4760', '#7a8aa6', '#1c2130', '#c8d6ea'], 220);
+    FX.sparks(x, y, 14, rand(0, TAU), TAU, 80, 260, { c0: '#ffffff', c1: '#ff6a7a', c2: '#145e6a' });
+    FX.ring(x, y, 2, 14, 0.2, { c: '#ff6a7a', core: '#ffffff', w: 1 });
+    Sound.play('limiterPop');
+    Game.shake(0.15);
+  }
+  roar() {
+    const C = Game.cine;
+    if (C && C.owner === this) { C.zoom = 2; C.caption = { text: 'LIMITERS OFF', color: '#ff6a7a', sub: 'NO SHIELD, NO GUNS. BLADE ONLY.' }; }
+    this.pal = AEGIS_PAL_P2;
+    const [cx, cy] = this.chest();
+    FX.flash('#ffffff', 0.6);
+    FX.ring(cx, cy, 4, 120, 0.6, { c: '#ff6a7a', core: '#ffffff', w: 2 });
+    FX.ring(cx, cy, 2, 70, 0.45, { c: '#ff3a52', core: '#ffd0d8', w: 1 });
+    FX.sparks(cx, cy, 50, 0, TAU, 100, 340, { c0: '#ffffff', c1: '#ff6a7a', c2: '#5a0c1a' });
+    FX.elec(cx, cy, 40, 14, { outer: '#ff3a52', core: '#ffffff' });
+    FX.light(cx, cy, 200, '#ff3048', 1, 0.9);
+    Sound.play('enrageRoar');
+    Sound.play('bossRoar');
+    Game.shake(0.7);
+    Game.hitstop(0.05);
+  }
+  endEnrage() {
+    Game.closeCine();
+    this.act = null; this.transT = 0.3; this.cds.combo = 0.4; this.riseV = 0; this.hover = false;
+    Game.announce('PHASE 2', 'PARRY A SWING, THEN PARRY ITS RIPOSTE', '#ff6a7a', 2.2);
   }
   chooseAct(p) {
     const dx = p.x - this.x, adx = Math.abs(dx), dy = p.y - this.y;
@@ -275,10 +357,7 @@ class Rival extends Enemy {
       case 'intro':
         if (a.t > 1.1) this.act = null;
         return { mx: 0 };
-      case 'limiter':
-        if (Math.random() < 0.6) FX.elec(this.x, this.cy, 18, 1, { outer: '#ff6a7a', core: '#ffffff' });
-        if (a.t > 1.4) this.act = null;
-        return { mx: 0 };
+      case 'enrage': return this.runEnrage(dt, a, p);
       case 'guard':
         this.facing = sign(p.x - this.x) || this.facing;
         if (Math.random() < 0.4) FX.sparks(this.x + this.facing * 8, this.y - 13, 1, -Math.PI / 2, 1.5, 20, 60, { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a', g: 0 });
@@ -337,7 +416,15 @@ class Rival extends Enemy {
     const [cx, cy] = this.chest();
     if (a.phase === 'wind') {
       this.facing = sign(p.x - this.x) || this.facing;
-      if (a.t >= this.tele(m.wind)) {
+      const wind = this.tele(m.wind);
+      if (!a.glinted && a.t >= Math.max(0, wind - GLINT_LEAD)) {
+        a.glinted = true;
+        const col = a.move === 'riposte' ? '#ffd070' : this.phase === 2 ? '#ff9aaa' : '#9af4ff';
+        const at = this._bladeGlint || this.chest();
+        FX.glint(at[0], at[1], { c: col, size: 1.25, follow: () => this._bladeGlint });
+        Sound.play('glint');
+      }
+      if (a.t >= wind) {
         a.phase = 'swing'; a.t = 0; a.hit = false; a.quaked = false;
         let ang = this.aimAngle, dir = this.facing;
         if (m.spin) ang = -Math.PI / 2;
@@ -346,7 +433,7 @@ class Rival extends Enemy {
         else if (a.move === 'riposte') {
           // the riposte closes whatever gap your counter opened
           const gap = Math.max(0, Math.abs(p.x - this.x) - 18);
-          this.lungeT = 0.14; this.lungeV = this.facing * Math.min(760, gap / 0.14);
+          this.lungeT = 0.14; this.lungeV = this.facing * Math.min(2200, gap / 0.14);
         } else if (m.lunge) this.vx = this.facing * m.lunge;
         if (m.rising) this.vy = -240;
         this.attack = { stage: 3, t: 0, sweep: m.swing * 0.6, dur: m.swing, dir, span: m.span, ang };
@@ -440,6 +527,7 @@ class Rival extends Enemy {
       if (this.onGround && this.jumpCD <= 0) { jump = true; this.jumpCD = 0.35; }
       else if (!this.onGround && this.vy > -60 && this.airJumps > 0 && this.jumpCD <= 0) { jump = true; this.jumpCD = 0.3; }
     }
+    if (mx && this.onGround && this.col && (this.col.wallL || this.col.wallR) && this.jumpCD <= 0) { jump = true; this.jumpCD = 0.3; }
     if (dy < -110 && this.cds.zip <= 0 && !this.act) this.zipTo(p);
     if (dy > 40 && this.onGround && Level.onOneWay(this)) drop = true;
     const closeIn = style === 'press' ? 150 : 280;
@@ -491,7 +579,7 @@ class Rival extends Enemy {
       if (d < 12 || this.stunT > 0 || T.t > 1.4) { this.tether = null; this.vy = -140; this.vx *= 0.3; this.airJumps = 1; }
     } else if (this.hover) {
       this.vx = approach(this.vx, 0, 400 * dt);
-      this.vy = approach(this.vy, Math.sin(this.t * 4) * 8, 600 * dt);
+      this.vy = approach(this.vy, this.riseV || Math.sin(this.t * 4) * 8, 600 * dt);
       if (Math.random() < 0.6) FX.sparks(this.x, this.y, 1, Math.PI / 2, 0.5, 40, 90, { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a', g: 0 });
     } else {
       const stunned = this.stunT > 0 || this.flinchT > 0;
@@ -513,7 +601,7 @@ class Rival extends Enemy {
       }
       if (intent.drop && this.onGround) { this.dropThrough = true; this.dropT = 0.22; this.vy = 40; this.onGround = false; }
     }
-    Level.moveBody(this, dt, { step: 11 });
+    Level.moveBody(this, dt, { step: 11, ghostCover: this.dashT > 0 || this.lungeT > 0 || !!this.tether });
     if (this.onGround) {
       this.airJumps = 1;
       if (!wasGround && preVy > 220) { FX.dust(this.x, this.y, 4, { smax: 40 }); this.landSquash = 0.12; }
@@ -524,74 +612,135 @@ class Rival extends Enemy {
     if (this.x > Level.W - 44) this.x = Level.W - 44;
   }
 
-  // ---------- death ----------
-  onDeath() {
+  // ---------- knockout ----------
+  // The last hit freezes into slow motion, then it staggers, kneels on its blade and collapses.
+  onDeath(o = {}) {
     if (this.dying) return;
-    this.dying = true; this.dyingT = 2.4; this.hp = 0; this.boomT = 0;
-    this.act = null; this.attack = null; this.beam = null; this.hover = false; this.tether = null; this.lungeT = 0;
+    this.dying = true; this.hp = 0; this.koT = 0;
+    this.act = null; this.attack = null; this.beam = null; this.hover = false; this.tether = null; this.lungeT = 0; this.dashT = 0;
+    this.stunT = 0; this.flinchT = 0; this.guardT = 0; this.riseV = 0;
     this.stopLoops();
-    Game.slowmo(0.35, 1.1);
-    Game.shake(0.5);
-    Sound.play('bossRoar');
-    Game.announce(this.name + ' DOWN', null, '#4af0ff', 2);
+    this.ko = { stage: 'impact', done: {}, rot: 0 };
+    const p = Game.player;
+    this.facing = sign(p.x - this.x) || this.facing;
+    this.vx = -this.facing * 160; this.vy = -140; this.onGround = false;
+    for (const b of Game.projectiles) if (!b.dead && (b.hostile || b.owner === this)) b.dead = true;
+    const [cx, cy] = this.chest(), ang = o.angle !== undefined ? o.angle : -0.5;
+    // keep the close-up clean: no damage numbers over the knockout
+    FX.texts = FX.texts.filter((q) => dist(q.x, q.y, this.x, this.y) > 60);
+    FX.slashLine(cx - Math.cos(ang) * 46, cy - Math.sin(ang) * 46, cx + Math.cos(ang) * 46, cy + Math.sin(ang) * 46, { w: 5, dur: 0.22, grow: 0.01, pal: PALETTES.gold });
+    FX.ring(cx, cy, 4, 90, 0.8, { c: '#ffd070', core: '#ffffff', w: 2 });
+    FX.ring(cx, cy, 2, 50, 0.6, { c: '#ff6a7a', core: '#ffffff', w: 1 });
+    FX.sparks(cx, cy, 60, ang, 2.2, 80, 420, { c0: '#ffffff', c1: '#ffe080', c2: '#ff5a3a' });
+    FX.elec(cx, cy, 30, 10, { outer: '#ff3a52', core: '#ffffff' });
+    FX.light(cx, cy, 200, '#ffffff', 1, 0.9);
+    FX.flash('#ffffff', 0.7);
+    Sound.play('koHit');
+    Sound.setIntensity(0);
+    Game.hitstop(0.12);
+    Game.slowmo(0.12, 1.3);
+    Game.shake(0.6);
+    if (!p.dead) Game.startCine({ kind: 'ko', focus: this, owner: this, zoom: 2 });
   }
   updateDying(dt) {
-    this.dyingT -= dt;
-    this.boomT -= dt;
-    this.vx = approach(this.vx, 0, 600 * dt);
+    const K = this.ko, C = Game.cine, own = C && C.owner === this;
+    this.koT += dt;
+    const ct = own ? C.t : this.koT * 2.5;
+    const once = (k) => (K.done[k] ? false : (K.done[k] = true));
+    this.vx = approach(this.vx, 0, (this.onGround ? 600 : 120) * dt);
     this.vy = Math.min(this.vy + 960 * dt, 430);
     Level.moveBody(this, dt);
     this.updateScarf(dt);
-    if (this.boomT <= 0) {
-      this.boomT = 0.18;
-      const bx = this.x + rand(-10, 10), by = this.y - rand(4, 22);
-      FX.ring(bx, by, 2, 14, 0.25, { c: '#4af0ff', core: '#ffffff', w: 1 });
-      FX.sparks(bx, by, 10, 0, TAU, 60, 220, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a' });
-      Sound.play('hit', { heavy: true });
-      Game.shake(0.15);
+    const [cx, cy] = this.chest();
+    const CYAN = { outer: '#2ab8d8', core: '#ffffff' };
+    if (ct < 1.3) {
+      K.stage = 'impact';
+      if (Math.random() < 0.5) FX.sparks(cx, cy, 2, rand(0, TAU), TAU, 60, 220, { c0: '#ffffff', c1: '#ffe080', c2: '#ff5a3a' });
+      if (Math.random() < 0.3) FX.elec(cx, cy, 16, 1, { outer: '#ff3a52', core: '#ffffff' });
+    } else if (ct < 2.1) {
+      K.stage = 'stagger';
+      if (once('stagger')) { if (own) C.zoom = 1; this.vx = -this.facing * 50; Sound.play('limiterPop'); FX.elec(cx, cy, 20, 6, CYAN); }
+      if (Math.random() < 0.25) FX.elec(cx, cy, 12, 1, CYAN);
+      if (Math.random() < 0.2) FX.sparks(cx, cy, 1, rand(0, TAU), TAU, 40, 140, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a' });
+    } else if (ct < 3.1) {
+      K.stage = 'kneel';
+      if (once('kneel')) { Sound.play('thud'); FX.dust(this.x, this.y, 8, { smax: 50 }); Game.shake(0.2); }
+      this.pal = ((ct * 12) | 0) % 3 ? AEGIS_PAL_P2 : AEGIS_PAL_KO;
+      if (Math.random() < 0.15) FX.elec(cx, cy, 10, 1, CYAN);
+    } else if (ct < 3.45) {
+      K.stage = 'collapse'; K.rot = clamp((ct - 3.1) / 0.35, 0, 1);
+      this.pal = AEGIS_PAL_KO;
+    } else {
+      K.stage = 'down'; K.rot = 1; this.pal = AEGIS_PAL_KO;
+      const hx = this.x + this.facing * 10;
+      if (once('down')) {
+        Sound.play('thud'); Sound.play('slam');
+        FX.dust(hx, this.y, 16, { smin: 30, smax: 90, rise: 4, r1: 5 });
+        FX.debris(hx, this.y - 1, 8, this.def.debris, 120);
+        FX.decal('crack', hx, this.y, { len: 18, n: 6, dur: 10 });
+        Game.shake(0.35);
+      }
+      if (ct >= 3.65 && once('big')) {
+        if (own) { C.big = { text: 'KNOCKOUT', color: '#ffd070', sub: this.name + ' IS DOWN' }; C.bigT = 0; }
+        Sound.play('ko');
+        FX.flash('#fff4d0', 0.35);
+        Game.shake(0.3);
+      }
+      if (Math.random() < 0.05) FX.elec(hx, this.y - 3, 8, 1, CYAN);
+      if (ct >= 5.4 && once('finish')) this.finishKO();
     }
-    if (this.dyingT <= 0) this.finalBlast();
   }
-  finalBlast() {
+  finishKO() {
     this.dead = true;
     this.stopLoops();
-    const cx = this.x, cy = this.cy;
-    if (this.spriteCopy) {
-      const img = makeCanvas(Sprite.SIZE, Sprite.SIZE);
-      img.ctx.drawImage(this.spriteCopy, 0, 0);
-      FX.gib(img, cx, cy, Sprite.OX, Sprite.OY - this.h / 2, 0.6, 1, 120, -260, this.h * 0.4);
-      FX.gib(img, cx, cy, Sprite.OX, Sprite.OY - this.h / 2, 0.6, -1, -120, -300, this.h * 0.4);
-    }
-    FX.ring(cx, cy, 4, 110, 0.6, { c: '#4af0ff', core: '#ffffff', w: 2 });
-    FX.ring(cx, cy, 2, 70, 0.45, { c: '#ff3a52', core: '#ffd0d8', w: 1 });
-    FX.sparks(cx, cy, 60, 0, TAU, 80, 360, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a' });
-    FX.debris(cx, cy, 30, this.def.debris, 260);
-    FX.oil(cx, cy, 20, -Math.PI / 2, 200);
-    FX.elec(cx, cy, 40, 12, { outer: '#2ab8d8', core: '#ffffff' });
-    FX.light(cx, cy, 200, '#4af0ff', 1, 0.6);
-    FX.flash('#ffffff', 0.5);
-    Sound.play('explode', { big: true });
-    Sound.play('bossShieldBreak');
-    Game.shake(0.8);
-    Game.hitstop(0.12);
+    if (this.spriteCopy) Game.props.push(new RivalHusk(this));
     SaveData.unlocks.aegis = true;
     SaveData.bossKills++;
     saveProgress();
     Game.onKill(this, { cause: 'boss' });
+    Game.closeCine();
+    Sound.setIntensity(0.3);
     Game.announce('AEGIS-07 UNLOCKED', 'DEFEATED RIVALS JOIN YOUR ROSTER', '#ffd070', 3);
+  }
+  koPose(o) {
+    const K = this.ko;
+    switch (K.stage) {
+      case 'impact':
+        o.lean = -0.55; o.fF = [5, -2]; o.fB = [-5, -1]; o.hF = [-5, -19]; o.hB = [-8, -13]; o.swordAng = -2.5;
+        if (!this.onGround) { o.fF = [4, -5]; o.fB = [-3, -3]; }
+        break;
+      case 'stagger':
+        o.lean = -0.2 + Math.sin(this.t * 9) * 0.08; o.hipY = -9; o.fF = [3, -1]; o.fB = [-6, -1];
+        o.hF = [3, -5]; o.hB = [-3, -5]; o.swordAng = 1.9;
+        break;
+      case 'kneel':
+        o.lean = 0.35; o.hipY = -6; o.fF = [5, -1]; o.fB = [-6, -1]; o.hF = [5, -16]; o.hB = [1, -7]; o.swordAng = 0.9;
+        break;
+      default: {
+        // fall forward around the feet: straighten out, arm reaching past the head, blade along the body
+        const u = K.rot;
+        o.lean = lerp(0.35, 0, u); o.hipY = lerp(-6, -10, u);
+        o.fF = [lerp(5, 1, u), -1]; o.fB = [lerp(-6, -1, u), -1];
+        o.hF = [lerp(5, 1, u), lerp(-16, -21, u)]; o.hB = [lerp(1, -1, u), lerp(-7, -14, u)];
+        o.swordAng = lerp(0.9, 1.72, u);
+        o.rot = 1.5 * u * u; o.pivotY = -2.5;
+      }
+    }
+    return true;
   }
 
   // ---------- drawing ----------
   drawFlash() {
     if (this.hitFlash > 0) return '#ffffff';
-    if (this.dying && ((this.t * 20) | 0) % 2) return '#bff8ff';
+    if (this.dying && this.ko && this.ko.stage === 'impact' && ((this.t * 40) | 0) % 2) return '#fff4d0';
     if (this.parryInvulnT > 0.3) return '#bff8ff';
     if (this.cutMark && ((this.t * 30) | 0) % 2) return '#4af0ff';
     return null;
   }
   customPose(o, la) {
     const a = this.act;
-    if (this.dying || this.stunT > 0) {
+    if (this.dying && this.ko) return this.koPose(o);
+    if (this.stunT > 0) {
       o.lean = 0.7; o.hipY = -5; o.fF = [5, -1]; o.fB = [-4, -1]; o.hF = [7, -4]; o.hB = [2, -6]; o.swordAng = 1.25;
       return true;
     }
@@ -623,7 +772,17 @@ class Rival extends Enemy {
       o.hB = [-6, -22]; o.hF = [4, -8]; o.swordAng = 2.5; o.fF = [5, -1]; o.fB = [-4, -1]; o.lean = -0.1;
       return true;
     }
-    if (a.kind === 'limiter' || a.kind === 'intro') {
+    if (a.kind === 'enrage') {
+      if (a.stage === 'brace') { o.lean = 0.3; o.hipY = -7; o.fF = [6, -1]; o.fB = [-6, -1]; o.hF = [8, -12]; o.hB = [-6, -9]; o.swordAng = 0.3; }
+      else if (a.stage === 'charge') {
+        const tr = Math.random() < 0.5 ? 0.5 : -0.5;
+        o.lean = 0.15; o.hipY = -9 + tr * 0.5; o.fF = [3, -3]; o.fB = [-3, -2]; o.hF = [4, -10]; o.hB = [-4, -10]; o.swordAng = 1.6; o.tremble = 1;
+      } else if (a.stage === 'roar') {
+        o.lean = -0.45; o.hipY = -10; o.fF = [5, -2]; o.fB = [-5, -2]; o.hF = [9, -18]; o.hB = [-9, -18]; o.swordAng = -0.6; o.tremble = 1;
+      } else { o.lean = 0.45; o.hipY = -6; o.fF = [7, -1]; o.fB = [-6, -1]; o.hF = [9, -4]; o.hB = [-4, -7]; o.swordAng = 1.2; }
+      return true;
+    }
+    if (a.kind === 'intro') {
       o.hF = [7, -17]; o.hB = [-7, -17]; o.swordAng = -1.0; o.fF = [5, -1]; o.fB = [-5, -1];
       return true;
     }
@@ -637,6 +796,7 @@ class Rival extends Enemy {
     g.fillStyle = hot ? '#ffffff' : C.blade; pline(g, hx + c * 2, hy + s * 2, hx + c * L, hy + s * L, 2);
     g.fillStyle = C.edge; pline(g, hx + c * 3 - s * 1.5, hy + s * 3 + c * 1.5, hx + c * (L - 1) - s * 1.5, hy + s * (L - 1) + c * 1.5, 1);
     g.fillStyle = '#2a3446'; g.fillRect(Math.round(hx + c * (L * 0.5)), Math.round(hy + s * (L * 0.5)), 1, 1);
+    this._bladeGlint = [this.x + (hx + c * L * 0.8) * this.facing, this.y + hy + s * L * 0.8];
   }
   drawExtras(g, J, C) {
     // shoulder pod; remember the off hand so the grenade orb can sit in it
@@ -709,6 +869,7 @@ class Rival extends Enemy {
         }
         const ex = P.x0 + P.vx * P.T, ey = P.y0 + P.vy * P.T + 0.5 * GRENADE_G * P.T * P.T;
         pring(ctx, ex - camX, ey - camY, 8, 0.4, 1);
+        drawBlastZone(ctx, ex - camX, Level.groundBelow(ex, ey) - camY, 56, this.t);
       }
     }
     if (this.beam) {
@@ -733,6 +894,7 @@ class Rival extends Enemy {
   }
   addLights() {
     if (this.spawning) { FX.frameLight(this.x, this.y - 30, 80, '#4af0ff', 0.9); return; }
+    if (this.dying && this.ko && this.pal === AEGIS_PAL_KO) return;
     const [vx, vy] = this.visorPos();
     FX.frameLight(vx, vy, 16, this.phase === 2 ? '#ffffff' : '#4af0ff', 0.9);
     FX.frameLight(this.x, this.cy, this.shield ? 40 : 24, this.phase === 2 ? '#ff6a7a' : '#4af0ff', this.shield ? 0.55 : 0.3);
@@ -747,89 +909,137 @@ for (const k of ['pose', 'updateScarf', 'makeGhost']) Rival.prototype[k] = Playe
 
 function adxNear(e, p) { return Math.abs(p.x - e.x) < 34; }
 
-// Pulse grenade: lobbed on an arc, bounces, and detonates on a timer. A hit disables the player's
-// shield for a while. Tether it to swing it and throw it back; a thrown-back grenade breaks the shield.
+// Ground ellipse showing where a grenade blast will reach.
+function drawBlastZone(ctx, x, y, R, t) {
+  const blink = ((t * 12) | 0) % 2, n = 44;
+  ctx.fillStyle = blink ? '#ffffff' : '#4af0ff';
+  for (let i = 0; i < n; i += 2) {
+    const a = (i / n) * TAU + t * 0.8;
+    ctx.fillRect(Math.round(x + Math.cos(a) * R), Math.round(y + Math.sin(a) * R * 0.22), 2, 1);
+  }
+  ctx.fillStyle = '#4af0ff';
+  pline(ctx, x - 3, y - 2, x + 3, y + 2, 1); pline(ctx, x - 3, y + 2, x + 3, y - 2, 1);
+}
+
+// Pulse grenade: lobbed on an arc, it detonates the moment it touches anything. A hostile blast knocks the
+// player's shield offline. Tether it in flight to slow time, reel in and slash it back toward the cursor;
+// a rebounded grenade breaks the rival's shield. A parry smothers it; any other sword hit sets it off.
 class PulseGrenade {
   constructor(x, y, vx, vy, owner) {
     this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.owner = owner;
-    this.fuse = 2.6; this.maxFuse = 2.6; this.t = 0; this.state = 'flying';
-    this.hostile = true; this.tetherable = true; this.grabR = 7; this.tethered = false; this.dead = false;
-    this.indicator = true; this.R = 56;
+    this.fuse = 4; this.t = 0; this.state = 'flying';
+    this.hostile = true; this.rebound = true; this.grabR = 11; this.tethered = false; this.dead = false;
+    this.indicator = true; this.R = 56; this.impact = null; this.predT = 0;
   }
   get cx() { return this.x; }
   get cy() { return this.y; }
-  grab() { this.state = 'towed'; this.hostile = false; }
-  towTo(hx, hy, dt, p) {
-    const dx = this.x - hx, dy = this.y - hy, d = Math.hypot(dx, dy) || 1;
-    const L = Math.min(d, 22), tx = hx + (dx / d) * L, ty = hy + (dy / d) * L;
-    this.vx = (tx - this.x) * 14 + p.vx * 0.5; this.vy = (ty - this.y) * 14 + p.vy * 0.5;
+  get tetherable() { return this.state === 'flying' && !this.dead; }
+  catch() { this.state = 'caught'; this.hostile = false; this.impact = null; }
+  bat(ang) {
+    this.state = 'batted'; this.hostile = false;
+    this.vx = Math.cos(ang) * 600; this.vy = Math.sin(ang) * 600;
+    this.fuse = Math.max(this.fuse, 2);
   }
-  throwAt(ang) {
-    this.state = 'thrown'; this.hostile = false;
-    this.vx = Math.cos(ang) * 420; this.vy = Math.sin(ang) * 420;
-    this.fuse = Math.max(this.fuse, 1.4);
-    Sound.play('throw');
-    FX.ring(this.x, this.y, 2, 12, 0.18, { w: 1 });
+  reflect() { this.explode({ blocked: true }); }
+  onSlash() {
+    Game.announce('TETHER IT FIRST', 'TETHER THE GRENADE, THEN SLASH IT BACK', '#4af0ff', 1.8, true);
+    this.explode();
   }
-  reflect(ang) { this.throwAt(ang); }
   update(dt) {
-    this.t += dt; this.fuse -= dt;
+    this.t += dt;
+    if (this.state !== 'caught') this.fuse -= dt;
     if (this.fuse <= 0) { this.explode(); return; }
-    const p = Game.player, owner = this.owner;
-    if (this.state === 'towed') {
-      if (!this.tethered) { this.state = 'flying'; this.hostile = true; }
-      this.x += this.vx * dt; this.y += this.vy * dt;
-      return;
+    if (this.state === 'caught') {
+      if (this.tethered) {
+        // hangs in the air while you reel in
+        const k = Math.max(0, 1 - 5 * dt);
+        this.vx *= k; this.vy *= k;
+        this.x += this.vx * dt; this.y += this.vy * dt;
+        if (Math.random() < 0.6) FX.elec(this.x, this.y, 9, 1, { outer: '#ffb040', core: '#ffffff' });
+        return;
+      }
+      this.state = 'flying'; this.hostile = true;
     }
-    if (this.state === 'thrown' && owner && !owner.dead && !owner.dying) {
-      // light homing so a rough throw still finds it
+    const owner = this.owner, batted = this.state === 'batted';
+    if (batted && owner && !owner.dead && !owner.dying) {
+      // light homing so a rough slash still finds it
       const want = Math.atan2(owner.cy - this.y, owner.x - this.x), cur = Math.atan2(this.vy, this.vx), d = angDiff(cur, want);
-      if (Math.abs(d) < 1.8) {
-        const na = cur + clamp(d, -2.4 * dt, 2.4 * dt), sp = Math.hypot(this.vx, this.vy);
+      if (Math.abs(d) < 1.0) {
+        const na = cur + clamp(d, -2.2 * dt, 2.2 * dt), sp = Math.hypot(this.vx, this.vy);
         this.vx = Math.cos(na) * sp; this.vy = Math.sin(na) * sp;
       }
-      if (dist(this.x, this.y, owner.x, owner.cy) < 14) { this.explode(); return; }
     }
-    const px = this.x, py = this.y;
-    this.vy += (this.state === 'thrown' ? 200 : GRENADE_G) * dt;
-    this.x += this.vx * dt; this.y += this.vy * dt;
-    if (this.vy > 0 && Level.pointSolid(this.x, this.y + 3, py + 3)) {
-      this.y = py; this.vy = -this.vy * 0.42; this.vx *= 0.7;
-      if (Math.abs(this.vy) < 40) this.vy = 0;
-      else Sound.play('barrelHit');
-      if (this.state === 'thrown') this.state = 'flying';
-    } else if (Level.pointSolid(this.x, this.y)) {
-      this.x = px; this.y = py; this.vx = -this.vx * 0.5;
-      if (this.vy < 0) this.vy *= 0.5;
+    this.vy += (batted ? 120 : GRENADE_G) * dt;
+    for (let i = 0; i < 3; i++) {
+      const py = this.y;
+      this.x += (this.vx * dt) / 3; this.y += (this.vy * dt) / 3;
+      if (this.contact(py)) return;
     }
-    if (this.vy === 0) this.vx = approach(this.vx, 0, 200 * dt);
-    if (this.hostile && !p.dead && p.parryActive() && dist(this.x, this.y, p.x, p.cy) < 12) {
-      p.doParry({ x: this.x, y: this.y, proj: this });
-    }
-    if (Math.random() < 0.5) FX.sparks(this.x, this.y, 1, rand(0, TAU), TAU, 20, 60, { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a', g: 0 });
+    if (this.hostile && (this.predT -= dt) <= 0) { this.predT = 0.05; this.impact = this.predict(); }
+    if (Math.random() < 0.6) FX.sparks(this.x, this.y, 1, rand(0, TAU), TAU, 20, 60, batted ? { c0: '#ffffff', c1: '#ffd070', c2: '#ff3a52', g: 0 } : { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a', g: 0 });
   }
-  explode() {
+  // Explodes on terrain, platforms, barrels, the player (while hostile) or any enemy (once rebounded).
+  contact(py) {
+    if (Level.pointSolid(this.x, this.y, py)) { this.explode(); return true; }
+    const p = Game.player;
+    if (this.hostile) {
+      if (!p.dead && circleRect(this.x, this.y, 4, p.x - p.w / 2, p.y - p.h, p.w, p.h)) {
+        if (p.parryActive()) p.doParry({ x: this.x, y: this.y, proj: this });
+        else this.explode();
+        return true;
+      }
+    } else {
+      for (const e of Game.enemies) {
+        if (e.dead || e.spawning) continue;
+        if (circleRect(this.x, this.y, 6, e.x - e.w / 2, e.y - e.h, e.w, e.h)) { this.explode(); return true; }
+      }
+    }
+    for (const pr of Game.props) {
+      if (!pr.dead && pr.grabR && circleRect(this.x, this.y, 4, pr.x - pr.w / 2, pr.y - pr.h, pr.w, pr.h)) { this.explode(); return true; }
+    }
+    return false;
+  }
+  predict() {
+    let x = this.x, y = this.y, vy = this.vy;
+    for (let i = 0; i < 120; i++) {
+      const py = y;
+      vy += GRENADE_G / 60; x += this.vx / 60; y += vy / 60;
+      if (Level.pointSolid(x, y, py)) return [x, Level.groundBelow(x, py)];
+    }
+    return null;
+  }
+  explode(o = {}) {
     if (this.dead) return;
     this.dead = true;
     const R = this.R, p = Game.player, owner = this.owner;
-    const friendly = this.state === 'thrown' || (this.state === 'flying' && !this.hostile);
-    if (owner && !owner.dead && dist(this.x, this.y, owner.x, owner.cy) < R + 4 && (friendly || this.state === 'thrown')) owner.pulseHit();
+    if (o.blocked) {
+      FX.ring(this.x, this.y, 3, 30, 0.3, { c: '#ffd070', core: '#ffffff', w: 2 });
+      FX.sparks(this.x, this.y, 20, 0, TAU, 60, 220, { c0: '#ffffff', c1: '#ffe080', c2: '#145e6a' });
+      FX.text('BLOCKED', this.x, this.y - 14, { c: '#ffd070', always: true, dur: 0.7, vy: -24 });
+      Sound.play('blocked');
+      Game.shake(0.2);
+      return;
+    }
+    const friendly = this.state === 'batted';
     if (friendly) {
+      if (owner && !owner.dead && dist(this.x, this.y, owner.x, owner.cy) < R + 6) owner.pulseHit();
       for (const e of Game.enemies) {
         if (e.dead || e.spawning || e === owner) continue;
         const d = dist(this.x, this.y, e.x, e.cy);
         if (d < R) hurtEnemy(e, 50, { kx: ((e.x - this.x) / (d || 1)) * 260, ky: -220, heavy: true, cause: 'barrel', angle: Math.atan2(e.cy - this.y, e.x - this.x) });
       }
-    }
-    // a hostile pulse, or one still on your tether, catches you
-    if (!p.dead && (this.hostile || this.state === 'towed') && dist(this.x, this.y, p.x, p.cy) < R) {
+    } else if (!p.dead && dist(this.x, this.y, p.x, p.cy) < R) {
       const r = p.takeHit({ dmg: 14 * (owner ? owner.dmgMul : 1), x: this.x, y: this.y, kind: 'explosion', knock: 240 });
       if (r === 'hit') p.disableShield(6);
     }
-    for (const [r1, d] of [[R, 0.45], [R * 0.7, 0.35], [R * 0.4, 0.25]]) FX.ring(this.x, this.y, 3, r1, d, { c: '#2ab8d8', core: '#ffffff', w: 2 });
-    for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU + rand(-0.2, 0.2); FX.bolt(this.x, this.y, this.x + Math.cos(a) * R * 0.8, this.y + Math.sin(a) * R * 0.8, 0.2, { outer: '#2ab8d8', core: '#ffffff', jag: 5 }); }
-    FX.sparks(this.x, this.y, 30, 0, TAU, 80, 300, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a' });
-    FX.light(this.x, this.y, 140, '#4af0ff', 1, 0.4);
+    for (const pr of Game.props) {
+      if (!pr.dead && pr.grabR && dist(this.x, this.y, pr.x, pr.cy) < R) pr.hit(30, { heavy: true, kx: (pr.x - this.x) * 4, ky: -200 });
+    }
+    const c1 = friendly ? '#ffd070' : '#2ab8d8';
+    for (const [r1, d] of [[R, 0.45], [R * 0.7, 0.35], [R * 0.4, 0.25]]) FX.ring(this.x, this.y, 3, r1, d, { c: c1, core: '#ffffff', w: 2 });
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU + rand(-0.2, 0.2); FX.bolt(this.x, this.y, this.x + Math.cos(a) * R * 0.8, this.y + Math.sin(a) * R * 0.8, 0.2, { outer: c1, core: '#ffffff', jag: 5 }); }
+    FX.sparks(this.x, this.y, 30, 0, TAU, 80, 300, { c0: '#ffffff', c1: friendly ? '#ffe080' : '#7af0ff', c2: '#145e6a' });
+    FX.light(this.x, this.y, 140, friendly ? '#ffd070' : '#4af0ff', 1, 0.4);
     FX.flash('#bff8ff', 0.25);
     Sound.play('pulse');
     Game.shake(0.45);
@@ -837,19 +1047,49 @@ class PulseGrenade {
   }
   drawEmissive(ctx, camX, camY) {
     const x = this.x - camX, y = this.y - camY;
-    const k = this.fuse / this.maxFuse, blink = ((this.t * (4 + (1 - k) * 18)) | 0) % 2;
+    if (this.hostile && this.impact) drawBlastZone(ctx, this.impact[0] - camX, this.impact[1] - camY, this.R, this.t);
+    const blink = ((this.t * 14) | 0) % 2, st = this.state;
+    const mid = st === 'flying' ? '#145e6a' : st === 'caught' ? '#6a4a10' : '#5a0c1a';
+    const core = st === 'flying' ? '#4af0ff' : st === 'caught' ? '#ffd070' : '#ff5a6a';
     ctx.fillStyle = '#0b0910'; pdisc(ctx, x, y, 5);
-    ctx.fillStyle = this.hostile ? '#145e6a' : '#5a0c1a'; pdisc(ctx, x, y, 4);
-    ctx.fillStyle = blink ? '#ffffff' : this.hostile ? '#4af0ff' : '#ff5a6a'; pdisc(ctx, x, y, 2);
-    // fuse ring drains as the pulse gets closer
-    const n = 16;
-    for (let i = 0; i < n; i++) {
-      if (i / n > k) continue;
-      const a = -Math.PI / 2 + (i / n) * TAU;
-      ctx.fillStyle = this.hostile ? '#7af0ff' : '#ff8a9a';
-      ctx.fillRect(Math.round(x + Math.cos(a) * 7), Math.round(y + Math.sin(a) * 7), 1, 1);
-    }
+    ctx.fillStyle = mid; pdisc(ctx, x, y, 4);
+    ctx.fillStyle = blink ? '#ffffff' : core; pdisc(ctx, x, y, 2);
+    ctx.fillStyle = core;
+    pring(ctx, x, y, 7 + Math.sin(this.t * 20), 1, 1);
     if (this.hostile && blink) drawText(ctx, '!', x, y - 15, { color: '#7af0ff', align: 'center' });
   }
-  addLights() { FX.frameLight(this.x, this.y, 34, this.hostile ? '#4af0ff' : '#ff3048', 0.9); }
+  addLights() { FX.frameLight(this.x, this.y, 34, this.state === 'flying' ? '#4af0ff' : this.state === 'caught' ? '#ffd070' : '#ff3048', 0.9); }
+}
+
+// What's left of the rival after a knockout: its last pose, lying in the street until the next wave.
+class RivalHusk {
+  constructor(r) {
+    this.x = r.x + r.facing * 9; this.y = r.y; this.w = 22; this.h = 6; this.dead = false;
+    this.ox = r.x; this.facing = r.facing; this.t = 0; this.wave = Director.wave; this.fade = 0;
+    this.img = makeCanvas(Sprite.SIZE, Sprite.SIZE);
+    this.img.ctx.drawImage(r.spriteCopy, 0, 0);
+  }
+  get cx() { return this.x; }
+  get cy() { return this.y - 3; }
+  hit() { FX.sparks(this.x, this.y - 3, 4, -Math.PI / 2, 1.6, 40, 120, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a' }); }
+  update(dt) {
+    this.t += dt;
+    if (!this.fade && Director.wave !== this.wave) {
+      this.fade = 0.001;
+      FX.ring(this.x, this.y - 2, 3, 30, 0.4, { sy: 0.35, c: '#4af0ff', core: '#ffffff', w: 1 });
+      Sound.play('spawn');
+    }
+    if (this.fade) { this.fade += dt; if (this.fade > 0.5) this.dead = true; }
+    if (Math.random() < 0.015) FX.elec(this.x + rand(-8, 8), this.y - 3, 7, 1, { outer: '#2ab8d8', core: '#ffffff' });
+    if (Math.random() < 0.04) FX.dust(this.x + rand(-6, 6), this.y - 4, 1, { c: '#3a3442', smax: 10, rise: 18, life: 1.6 });
+  }
+  draw(ctx, camX, camY) {
+    const g = Sprite.begin(1);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.drawImage(this.img, 0, 0);
+    Sprite.end(ctx, this.ox - camX, this.y - camY, { alpha: this.fade ? 1 - this.fade / 0.5 : 1 });
+  }
+  addLights() {
+    if (((this.t * 3) | 0) % 4 === 0) FX.frameLight(this.x + this.facing * 9, this.y - 3, 14, '#4af0ff', 0.3);
+  }
 }

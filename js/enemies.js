@@ -8,6 +8,8 @@ const ENEMY_DEFS = {
   brute: { hp: 250, w: 20, h: 31, speed: 42, score: 450, mass: 3.5, dmg: 22, heavy: true, debris: ['#3a3a44', '#55555f', '#24242c', '#7a3e28', '#ff7a2a'] },
 };
 const ENEMY_BASE_STATE = { scrapper: 'chase', gunner: 'move', drone: 'hover', brute: 'walk' };
+// The melee glint flashes this long before a hit lands, so a reaction to it lands inside the parry window.
+const GLINT_LEAD = 0.28;
 
 class Enemy {
   constructor(type, x, y, scale = {}) {
@@ -25,7 +27,29 @@ class Enemy {
     this.struck = false; this.walk = 0; this.onGround = false;
   }
   get cy() { return this.y - this.h / 2; }
-  setState(s) { this.state = s; this.st = 0; }
+  setState(s) { this.state = s; this.st = 0; this.glinted = false; }
+  // Wind-up length of the current melee attack, or 0 when none is coming.
+  meleeWind() {
+    const s = this.state;
+    if (this.type === 'scrapper' && s === 'windup') return this.tele(0.45);
+    if (this.type === 'brute' && s === 'punchWind') return this.tele(0.55);
+    if (this.type === 'drone' && s === 'tele') return this.tele(0.5);
+    return 0;
+  }
+  glintPoint() {
+    const f = this.facing;
+    if (this.type === 'scrapper') return [this.x - f * 1, this.y - 27];
+    if (this.type === 'brute') return [this.x - f * 6, this.y - 23];
+    return [this.x + f * 3, this.y - 6];
+  }
+  checkGlint() {
+    const w = this.meleeWind();
+    if (!w || this.glinted || this.st < Math.max(0, w - GLINT_LEAD)) return;
+    this.glinted = true;
+    const [gx, gy] = this.glintPoint();
+    FX.glint(gx, gy, { c: '#ffe8a0', size: this.heavy ? 1.1 : 0.8, follow: () => this.glintPoint() });
+    Sound.play('glint');
+  }
   windingUp() { return this.state === 'windup' || this.state === 'aim' || this.state === 'tele' || this.state === 'punchWind' || this.state === 'slamWind'; }
   stagger(dur, kx = 0) {
     if (this.heavy && dur < 1) dur *= 0.5;
@@ -58,6 +82,7 @@ class Enemy {
       return;
     }
     this[this.type](dt);
+    this.checkGlint();
     this.physics(dt, false);
   }
   physics(dt, stunned) {

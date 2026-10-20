@@ -34,6 +34,7 @@ Every binding can be changed in **Settings → Controls** (two slots per action)
 | Action | Default |
 | --- | --- |
 | Move | `A` / `D` |
+| Vault low cover | Run into it (hold `S` to stay behind it) |
 | Jump, double jump, wall jump | `W` or `Space` |
 | Crouch; slide when running | `S` |
 | Bullet jump toward the cursor | `S` + `W` (while crouching or sliding) |
@@ -46,7 +47,8 @@ Every binding can be changed in **Settings → Controls** (two slots per action)
 | Parry stance (costs 15 shield) | `E` just before a hit lands |
 | Counter after a parry | Release `E` |
 | Tether: tap to fling yourself, hold to zip | Right mouse at a target |
-| Grab, swing and throw a barrel or pulse grenade | Hold right mouse on it, release to throw |
+| Grab, swing and throw a barrel | Hold right mouse on it, release to throw |
+| Rebound a pulse grenade (slows time) | Right mouse on it in flight, aim with the mouse |
 | Sawblade ultimate | Hold `R` for 1 second when charged |
 | Pause | `Esc` or `P` |
 
@@ -58,13 +60,14 @@ Every binding can be changed in **Settings → Controls** (two slots per action)
 
 **Ground cut.** Clicking while sliding drags the blade through the street: it hits anything low in front of you and sprays rubble that damages enemies ahead.
 
-**Parry stance.** Pressing `E` costs 15 shield and opens a parry window for the first 0.2 s (adjustable in settings). It blocks melee hits, drone dives, brute shockwaves, the rival's blade, beam and pulse grenades, and bolts. A successful parry refunds the 15 shield, slows time and empowers the blade; releasing `E` then fires a counter that chains lightning to up to five nearby enemies. Parried bolts fly back toward the cursor, and a parried grenade is thrown back too. A stance without a parry does nothing and goes on a 0.8 s cooldown (0.25 s after a counter). The stance can also hover you briefly once per jump.
+**Parry stance.** Pressing `E` costs 15 shield and opens a parry window for the first 0.2 s (adjustable in settings). It blocks melee hits, drone dives, brute shockwaves, the rival's blade, beam and pulse grenades, and bolts. A star-shaped glint flashes on the weapon about 0.28 s before any melee hit lands, so pressing `E` as a reaction to it lands inside the window. A successful parry refunds the 15 shield, slows time and empowers the blade; releasing `E` then fires a counter that chains lightning to up to five nearby enemies. Parried bolts fly back toward the cursor; a parried grenade is only smothered. A stance without a parry does nothing and goes on a 0.8 s cooldown (0.25 s after a counter). The stance can also hover you briefly once per jump.
 
 **Tether.** Fires an electric line at the cursor. Each shot costs 15 shield, so the shield is both armour and fuel. It never pulls enemies.
 
 - Tap on an enemy or terrain: fling yourself toward it.
 - Hold: zip to the target. Arriving at an enemy lands a tether strike and bounces you up. Releasing early slingshots you with your momentum.
-- Barrels and pulse grenades are grabbed instead: hold to swing them on the line, release to throw them at the cursor. Thrown barrels explode on enemies; thrown grenades curve toward the rival and burst on contact. A grenade still on your tether when its timer runs out goes off in your hand.
+- Barrels are grabbed instead: hold to swing them on the line, release to throw them at the cursor. Thrown barrels explode on enemies.
+- A pulse grenade in flight is the exception. Hitting it with the tether (the line homes onto a grenade near the cursor) drops into bullet time: the world loses its colour, time runs at a quarter speed, and you reel yourself in and slash it toward the cursor. The rebounded grenade curves slightly toward the rival and bursts on contact.
 - Tethered enemies take 25% more damage, and a dash slash or counter released while tethered aims straight at the target.
 
 **Health and shield.** The shield (max 100) absorbs damage first and starts refilling after 3 seconds without being hit. If a hit breaks the shield, the overflow is ignored and you get a short invulnerability window. Health only comes back from wave clears and the green pickups enemies drop.
@@ -74,6 +77,8 @@ Every binding can be changed in **Settings → Controls** (two slots per action)
 **Sawblade ultimate.** Kills fill the meter (brutes count triple; the kill count is adjustable). Hold `R` for a second to become a spinning electric saw for 7 seconds: invulnerable, contact damage, unlimited jumps, free tether with no range limit, and left mouse lunges toward the cursor. Holding the tether on an enemy latches the saw onto it until it dies or you let go, with damage that grows every tick.
 
 **The arena.** Buildings are scenery you run straight through; their roofs and balconies, plus fire escapes, girders, scaffolds and an overpass, are one-way platforms stacked about a double jump apart. Only the two boundary walls are solid, and they can be wall-jumped.
+
+**Cover.** Six striped concrete barriers with amber beacons stand along the street. They are tall enough to stop bolts aimed at your chest, the rival's beam and ground shockwaves, but shots from above still reach you. Running into one vaults it; holding crouch keeps you behind it. Flash-step movement (dashes, drawn slashes, zips and the rival's lunges) passes over them.
 
 ## Modes
 
@@ -101,15 +106,19 @@ The fight has two phases and no reinforcements.
 **Phase 1 (above half health)**
 
 - **Shield:** while it is up, every attack is deflected. Its own pulse grenade is the only thing that breaks it, and its health can't drop below half until phase 2 starts.
-- **Pulse grenade:** it charges an orb in its off hand and previews the arc, then lobs it. The grenade bounces and detonates on a timer. If the blast catches you, your shield drops to zero and stays offline for six seconds, which also locks out the parry stance and tether. Tether the grenade, swing it, and throw it back (or parry it) to break the rival's shield.
+- **Pulse grenade:** it charges an orb in its off hand and previews the arc, then lobs it. The grenade explodes the moment it touches anything: terrain, a platform, a barrel or you. A dashed ring on the ground shows where it will land and how far the blast reaches. If the blast catches you, your shield drops to zero and stays offline for six seconds, which also locks out the parry stance and tether. The only way to send it back is the tether rebound; slashing it without the tether sets it off in your face, and a parry only smothers it.
 - **Shield down:** the rival is stunned for about three seconds and takes extra damage, then fights on unshielded and dodges some of your swings. The shield returns after ten seconds.
 - **Other attacks:** a forearm gun that fires bursts while it moves, a greatblade swing up close, and a visor beam fired while hovering. The beam has angular momentum, so it is slow to change direction once firing.
 
-**Phase 2 (half health)**
+**Half health.** A shockwave throws you clear and a short cutscene plays (input is locked): letterbox bars, the camera on the rival, its limiter plates popping off, then a 2x close-up as it roars and its visor turns white.
+
+**Phase 2**
 
 - The shield and every ranged attack go offline for good. It moves faster and fights in greatblade combos built from five moves: slash, overhead cleave (with ground shockwaves), rising slash, lunging thrust, and spin.
 - Parry one of its swings and it raises a guard. Your counter (or any attack) is parried, and it answers with a gold, gap-closing riposte.
 - Parry the riposte and it is staggered for about three seconds, taking extra damage.
+
+**Knockout.** The last hit freezes into heavy slow motion in a 2x close-up. Then it staggers, drops to one knee on its blade and collapses face down, with a KNOCKOUT title. Its body stays in the street until the next wave.
 
 Defeating it sets `SaveData.unlocks.aegis`. Its palette, weapon and name live in `CHARACTERS` in `js/rival.js`, ready for a character select.
 
@@ -136,11 +145,11 @@ Plain JavaScript, loaded as classic scripts so the game runs from `file://`.
 | `js/player.js` | Movement, combat, parry, tether, shield and the player rig |
 | `js/ultimates.js` | Ultimate ability registry and the Sawblade |
 | `js/enemies.js` | Enemy AI, projectiles, rubble, shockwaves, barrels, pickups |
-| `js/rival.js` | AEGIS-07 boss, its pulse grenade, and the `CHARACTERS` registry |
+| `js/rival.js` | AEGIS-07 boss, its cutscenes, pulse grenade, knocked-out husk, and the `CHARACTERS` registry |
 | `js/waves.js` | Demo waves, endless wave generation, rival waves |
 | `js/render.js` | Frame composition, lighting, weather, HUD |
 | `js/ui.js` | Menus, results screen and settings panel |
-| `js/main.js` | Game state, fixed 120 Hz simulation, camera, main loop |
+| `js/main.js` | Game state, fixed 120 Hz simulation, camera, cutscene and bullet-time state, main loop |
 
 The game renders at 480×270 and CSS scales it up with nearest-neighbour filtering. Characters are drawn each frame as skeletons of pixel lines into a scratch canvas, then composited with a 1 px outline. The rival reuses the player's pose and drawing code with its own palette (`pal`), weapon (`drawKatana` override), extra parts (`drawExtras`) and action poses (`customPose`); a future playable character can plug in the same way.
 

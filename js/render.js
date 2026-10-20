@@ -14,6 +14,7 @@ const Render = {
     this.light = makeCanvas(VIEW_W, VIEW_H);
     this.mask = makeCanvas(VIEW_W, VIEW_H);
     this.vignette = makeCanvas(VIEW_W, VIEW_H);
+    this.zoomBuf = makeCanvas(VIEW_W, VIEW_H);
     const g = this.vignette.ctx;
     const grd = g.createRadialGradient(VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.35, VIEW_W / 2, VIEW_H / 2, VIEW_W * 0.62);
     grd.addColorStop(0, 'rgba(8,4,12,0)');
@@ -66,8 +67,18 @@ const Render = {
     FX.drawGibs(sc, cx, cy);
     if (S.visuals.lighting) this.applyLighting(cx, cy, t);
     ctx.drawImage(this.scene, 0, 0);
+    // bullet time drains the colour from the world; emissive effects drawn after it stay bright
+    const bt = G.bulletK();
+    if (bt > 0) {
+      ctx.globalCompositeOperation = 'saturation';
+      ctx.globalAlpha = 0.85 * bt; ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.globalAlpha = 0.55 * bt; ctx.fillStyle = '#7080b8'; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    }
 
     // emissive layer
+    Level.drawEmissive(ctx, cx, cy, t);
     for (const e of G.enemies) if (!e.dead) e.drawEmissive(ctx, cx, cy);
     for (const h of G.hazards) h.drawEmissive(ctx, cx, cy);
     for (const pk of G.pickups) pk.drawEmissive(ctx, cx, cy);
@@ -75,6 +86,7 @@ const Render = {
     FX.drawEmissive(ctx, cx, cy);
     if (G.player) G.player.drawEmissive(ctx, cx, cy);
     if (S.visuals.glow) this.drawGlow(ctx, cx, cy);
+    if (bt > 0) this.drawBulletTime(ctx, cx, cy, bt, t);
     FX.drawTexts(ctx, cx, cy);
     if (S.visuals.weather) this.drawWeather(ctx, realDt, cx, cy);
     if (FX.flashA > 0) {
@@ -84,11 +96,66 @@ const Render = {
       ctx.globalAlpha = 1;
       FX.flashA = Math.max(0, FX.flashA - realDt * 6);
     }
+    const C = G.cine;
+    if (C && C.zoom > 1 && C.focus) this.zoomTo(ctx, C.focus.x - cx, C.focus.y - 12 - cy, C.zoom);
     ctx.drawImage(this.vignette, 0, 0);
-    if (G.player && (G.state === 'playing' || G.state === 'paused' || G.state === 'over')) this.drawHUD(ctx, realDt);
+    const inGame = G.player && (G.state === 'playing' || G.state === 'paused' || G.state === 'over');
+    if (inGame && !G.cineActive()) this.drawHUD(ctx, realDt);
+    if (C) this.drawCine(ctx, C, t);
     if (S.visuals.showFps) drawText(ctx, Math.round(this.fps) + ' FPS', VIEW_W - 4, VIEW_H - 9, { align: 'right', color: '#7a849c' });
   },
 
+  // Integer zoom (pixel-perfect) around a screen point, used for cutscene close-ups.
+  zoomTo(ctx, fx, fy, z) {
+    const w = VIEW_W / z, h = VIEW_H / z;
+    const sx = clamp(Math.round(fx - w / 2), 0, VIEW_W - w), sy = clamp(Math.round(fy - h / 2), 0, VIEW_H - h);
+    const zb = this.zoomBuf.ctx;
+    zb.clearRect(0, 0, VIEW_W, VIEW_H);
+    zb.drawImage(this.canvas, 0, 0);
+    ctx.drawImage(this.zoomBuf, sx, sy, w, h, 0, 0, VIEW_W, VIEW_H);
+  },
+  drawCine(ctx, C, t) {
+    const k = easeOutCubic(clamp(C.bars, 0, 1)), bh = Math.round(30 * k);
+    if (bh <= 0) return;
+    ctx.fillStyle = '#050308';
+    ctx.fillRect(0, 0, VIEW_W, bh); ctx.fillRect(0, VIEW_H - bh, VIEW_W, bh);
+    if (C.caption && k > 0.9) {
+      const cap = C.caption;
+      drawText(ctx, cap.text, VIEW_W / 2, VIEW_H - bh + 7, { align: 'center', color: cap.color || '#ffffff', scale: 2 });
+      if (cap.sub) drawText(ctx, cap.sub, VIEW_W / 2, VIEW_H - bh + 20, { align: 'center', color: '#9a8aa8' });
+    }
+    if (C.big) {
+      const bt = C.bigT, sc = bt < 0.08 ? 9 : bt < 0.16 ? 7 : 6;
+      const shake = bt < 0.3 ? Math.round((Math.random() - 0.5) * 4 * (1 - bt / 0.3)) : 0;
+      drawText(ctx, C.big.text, VIEW_W / 2 + shake, VIEW_H / 2 - sc * 3 + shake, { align: 'center', color: C.big.color || '#ffd070', scale: sc, outline: '#0b0910' });
+      if (C.big.sub && bt > 0.5) drawText(ctx, C.big.sub, VIEW_W / 2, VIEW_H / 2 + sc * 3 + 6, { align: 'center', color: '#e8d8e0', outline: '#0b0910' });
+    }
+  },
+  // Speed lines converging on the tethered grenade, a closing reticle, and where the slash will send it.
+  drawBulletTime(ctx, cx, cy, k, t) {
+    const p = Game.player, T = p && p.tether;
+    if (!T || T.mode !== 'rebound' || !T.target) return;
+    const g = T.target, gx = g.x - cx, gy = g.y - cy;
+    ctx.globalAlpha = 0.35 * k;
+    ctx.fillStyle = '#e0f0ff';
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * TAU + Math.sin(i * 7.3) * 0.2, r0 = 70 + ((i * 37 + ((t * 240) | 0)) % 90), r1 = r0 + 26 + (i % 3) * 10;
+      pline(ctx, gx + Math.cos(a) * r0, gy + Math.sin(a) * r0, gx + Math.cos(a) * r1, gy + Math.sin(a) * r1, 1);
+    }
+    ctx.globalAlpha = 1;
+    const rr = 6 + 14 * clamp(Game.btT / Game.btDur, 0, 1);
+    ctx.fillStyle = '#ffd070';
+    for (let i = 0; i < 4; i++) {
+      const a = i * (Math.PI / 2) + t * 3;
+      pline(ctx, gx + Math.cos(a) * rr, gy + Math.sin(a) * rr, gx + Math.cos(a) * (rr + 4), gy + Math.sin(a) * (rr + 4), 1);
+    }
+    const ang = p.aimAngle;
+    for (let d = 14; d < 130; d += 5) {
+      ctx.fillStyle = d < 60 ? '#ffffff' : '#ffd070';
+      ctx.fillRect(Math.round(gx + Math.cos(ang) * d), Math.round(gy + Math.sin(ang) * d), 1, 1);
+    }
+    drawText(ctx, 'AIM THE SLASH', gx, gy + 14, { align: 'center', color: '#ffd070', outline: '#0b0910' });
+  },
   gatherLights(cx, cy, t) {
     const G = Game;
     Level.addLights(cx, cy, t);
@@ -320,7 +387,7 @@ const Render = {
       ctx.fillStyle = '#4af0ff';
       for (let i = 0; i < w; i += 2) if (((i + ((t * 20) | 0)) >> 1) % 3) ctx.fillRect(x + i, y, 1, 4);
       ctx.globalAlpha = 1;
-      drawText(ctx, 'SHIELDED - THROW ITS GRENADE BACK', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
+      drawText(ctx, 'SHIELDED - TETHER ITS GRENADE, SLASH IT BACK', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
     } else if (b.stunT > 0) drawText(ctx, 'STUNNED', VIEW_W / 2, y + 7, { align: 'center', color: '#ffffff' });
     else if (b.phase === 2) drawText(ctx, b.guardT > 0 ? 'GUARDING - BAIT THE RIPOSTE AND PARRY IT' : 'LIMITERS OFF - PARRY, THEN PARRY ITS RIPOSTE', VIEW_W / 2, y + 7, { align: 'center', color: '#ff8a9a' });
     else drawText(ctx, 'SHIELD BACK IN ' + Math.ceil(b.shieldDownT), VIEW_W / 2, y + 7, { align: 'center', color: '#7a9aa6' });
