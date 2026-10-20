@@ -1,15 +1,24 @@
 'use strict';
 // Game state, fixed-step simulation, camera and the main loop.
 
+// Style: hits build a meter that ranks you C to SSS. Repeating the same move earns less,
+// and the rank multiplies score and ultimate charge.
+const STYLE_GAIN = { dash: 6, slash: 4, groundcut: 8, rock: 2, plunge: 10, iaido: 10, chain: 5, tether: 10, reflect: 12, barrel: 10, saw: 1.5 };
+const STYLE_RANKS = [
+  { th: 380, r: 'SSS', c: '#ffffff', mul: 2.5 }, { th: 260, r: 'SS', c: '#ffd070', mul: 2 }, { th: 170, r: 'S', c: '#ffb040', mul: 1.75 },
+  { th: 100, r: 'A', c: '#ff5a6a', mul: 1.5 }, { th: 50, r: 'B', c: '#d0a0ff', mul: 1.25 }, { th: 20, r: 'C', c: '#9ab0d0', mul: 1.1 },
+];
+
 const Game = {
   state: 'menu', mode: 'demo', time: 0, realTime: 0, acc: 0,
   player: null, enemies: [], projectiles: [], props: [], hazards: [], pickups: [], cuts: [],
   cam: { x: 520, y: 100, ox: 0, oy: 0, trauma: 0, rx: 0, ry: 0 },
   slowScale: 1, slowT: 0, freezeT: 0, btT: 0, btDur: 0,
   // cutscene: letterbox bars, camera focus, optional 2x zoom; the owner drives it and closes it
-  cine: null,
+  cine: null, seenCines: new Set(), runs: {}, upgrades: new Set(),
   stats: { kills: 0, score: 0, maxCombo: 0, parries: 0, wave: 0, time: 0, damageTaken: 0, ults: 0 },
   combo: 0, comboT: 0, comboPop: 0, announcements: [], overT: 0, overVictory: false,
+  style: 0, styleRecent: [], styleIdle: 0, lastSlowAt: -10, rankPop: 0,
 
   mouseWorld() { return { x: Input.mx + this.cam.x, y: Input.my + this.cam.y }; },
 
@@ -37,6 +46,7 @@ const Game = {
     for (const e of this.enemies) if (e.stopLoops) e.stopLoops();
     Sound.stopAll();
     this.mode = mode;
+    this.runs[mode] = (this.runs[mode] || 0) + 1;
     this.state = 'playing';
     FX.clear();
     this.enemies = []; this.projectiles = []; this.hazards = []; this.pickups = []; this.cuts = []; this.props = [];
@@ -45,12 +55,14 @@ const Game = {
     this.cine = null; Input.locked = false;
     this.stats = { kills: 0, score: 0, maxCombo: 0, parries: 0, wave: 0, time: 0, damageTaken: 0, ults: 0 };
     this.combo = 0; this.comboT = 0; this.announcements = [];
+    this.style = 0; this.styleRecent = []; this.styleIdle = 0; this.upgrades = new Set();
     Render.hpTrail = PC.MAX_HP; Render.shTrail = PC.MAX_SHIELD;
     this.cam.x = clamp(this.player.x - VIEW_W / 2, 0, Level.W - VIEW_W);
     this.cam.y = clamp(this.player.y - VIEW_H * 0.62, Level.CAM_Y_MIN, Level.H - VIEW_H);
     this.cam.trauma = 0;
     this.resetProps(true);
     Director.start(mode);
+    if (mode === 'training') { Training.start(); Training.reset(); }
     Sound.setSlow(false);
     Sound.setIntensity(0.4);
     Input.clear(); Input.consume();
@@ -62,7 +74,7 @@ const Game = {
     if (this.player) { this.player.stopLoop('charge'); this.player.stopLoop('reel'); this.player.stopLoop('ult'); }
     for (const e of this.enemies) if (e.stopLoops) e.stopLoops();
     Sound.setSlow(true);
-    UI.show('pause');
+    UI.show(UI.pausePanel());
   },
   resume() {
     if (this.state !== 'paused') return;
@@ -86,15 +98,20 @@ const Game = {
     if (S.visuals.hitstop <= 0) return;
     this.freezeT = Math.max(this.freezeT, Math.min(0.12, d * S.visuals.hitstop));
   },
-  slowmo(scale, dur) {
+  // force: cutscenes and big payoffs. Anything else within 2s of the last slow-mo is halved.
+  slowmo(scale, dur, force = false) {
     if (!S.visuals.slowmo) return;
+    if (!force) {
+      if (this.realTime - this.lastSlowAt < 2) { scale = lerp(scale, 1, 0.5); dur *= 0.5; }
+      this.lastSlowAt = this.realTime;
+    }
     this.slowScale = Math.min(this.slowScale, scale);
     this.slowT = Math.max(this.slowT, dur);
     Sound.setSlow(true);
   },
   shake(t) { this.cam.trauma = Math.min(1, this.cam.trauma + t); },
   // Bullet time for the grenade rebound: slow motion plus a desaturated screen.
-  bulletTime(dur) { this.btT = dur; this.btDur = dur; this.slowmo(0.25, dur); },
+  bulletTime(dur) { this.btT = dur; this.btDur = dur; this.slowmo(0.25, dur, true); },
   endBulletTime() {
     if (this.btT <= 0) return;
     this.btT = 0; this.slowScale = 1; this.slowT = 0;
@@ -105,7 +122,10 @@ const Game = {
     return clamp(this.btT / 0.12, 0, 1) * clamp((this.btDur - this.btT) / 0.08, 0, 1);
   },
   startCine(o) {
-    this.cine = Object.assign({ t: 0, bars: 0, zoom: 1, focus: null, owner: null, caption: null, big: null, bigT: 0, closing: false }, o);
+    this.cine = Object.assign({ t: 0, bars: 0, zoom: 1, focus: null, owner: null, caption: null, big: null, bigT: 0, closing: false, skipHold: 0 }, o);
+    // a cutscene you've already seen this session can be skipped by holding attack, parry or jump
+    this.cine.skippable = this.seenCines.has(this.cine.kind);
+    this.seenCines.add(this.cine.kind);
     Input.locked = true;
     const p = this.player;
     if (p.sheathe) p.cancelSheathe();
@@ -127,19 +147,56 @@ const Game = {
     if (this.announcements.length > 3) this.announcements.shift();
   },
   addScore(n) { this.stats.score += Math.round(n); },
-  registerHit() {
+  registerHit(d, cause) {
     this.combo++;
     this.comboT = 2.5;
     this.comboPop = 0.06;
     if (this.combo > this.stats.maxCombo) this.stats.maxCombo = this.combo;
+    const base = STYLE_GAIN[cause] || 3;
+    const repeats = this.styleRecent.filter((c) => c === cause).length;
+    const before = this.rank();
+    this.style += base * Math.max(0.2, 1 - 0.18 * repeats);
+    this.styleRecent.push(cause);
+    if (this.styleRecent.length > 8) this.styleRecent.shift();
+    this.styleIdle = 0;
+    const after = this.rank();
+    if (after && after !== before && (!before || after.th > before.th)) { this.rankPop = 0.3; Sound.play('rankUp'); }
   },
+  rank() { for (const r of STYLE_RANKS) if (this.style >= r.th) return r; return null; },
+  has(id) { return this.upgrades.has(id); },
+  mod(id) { return (this.mode === 'endless' || this.mode === 'training') && Director.modifier === id; },
+  gravMul() { return this.mod('lowgrav') ? 0.6 : 1; },
+  // Endless: offer one of three upgrades during the break.
+  offerUpgrade() {
+    if (this.state !== 'playing' || this.player.dead) return;
+    const opts = upgradeOffer();
+    if (!opts.length) return;
+    this.state = 'pick';
+    this.player.stopLoop('charge'); this.player.stopLoop('reel'); this.player.stopLoop('ult');
+    Sound.setSlow(true);
+    UI.showPick(opts);
+  },
+  chooseUpgrade(id) {
+    if (this.state !== 'pick' || !UPGRADES[id]) return;
+    this.upgrades.add(id);
+    this.state = 'playing';
+    Sound.setSlow(this.slowT > 0);
+    Sound.play('ultReady');
+    Input.clear(); Input.consume();
+    UI.hideAll();
+    this.announce(UPGRADES[id].name.toUpperCase(), UPGRADES[id].desc.toUpperCase(), '#ffd070', 2.6, true);
+  },
+  rankMul() { const r = this.rank(); return r ? r.mul : 1; },
+  // getting hit costs most of your style
+  styleHit() { this.style *= 0.4; this.styleRecent.length = 0; },
   onKill(e, o) {
     if (e.counted) return;
     e.counted = true;
     this.stats.kills++;
-    this.addScore(e.def.score * (1 + Math.min(this.combo, 100) * 0.05));
+    this.addScore(e.def.score * (1 + Math.min(this.combo, 100) * 0.03) * this.rankMul());
     const p = this.player;
-    if (!p.ult) p.ultCharge = Math.min(1, p.ultCharge + (e.heavy ? 3 : 1) / S.gameplay.ultKills);
+    if (!p.ult) p.ultCharge = Math.min(1, p.ultCharge + ((e.heavy ? 3 : 1) / S.gameplay.ultKills) * this.rankMul());
+    if (this.has('bloodline') && !p.dead) p.heal(2);
     if (o.cause !== 'fall' && chance(e.heavy ? 1 : 0.12)) this.pickups.push(new Pickup(e.x, e.cy, 'hp'));
   },
   onPlayerDeath() {
@@ -173,6 +230,11 @@ const Game = {
       if (C.big) C.bigT += realDt;
       C.bars = approach(C.bars, C.closing ? 0 : 1, realDt * (C.closing ? 2.5 : 3.5));
       if (C.closing && C.bars <= 0) this.cine = null;
+      else if (C.skippable && !C.closing) {
+        const held = ['attack', 'sheathe', 'jump'].some((a) => Input.codes(a).some((c) => c && Input.down.has(c)));
+        C.skipHold = held ? C.skipHold + realDt : 0;
+        if (C.skipHold >= 0.5 && C.owner && C.owner.skipCine) { C.owner.skipCine(); Game.freezeT = 0; this.slowT = 0; this.slowScale = 1; Sound.setSlow(false); }
+      }
     }
     if (this.btT > 0) { this.btT -= realDt; if (this.btT <= 0) this.btT = 0; }
     if (this.slowT > 0) {
@@ -187,6 +249,7 @@ const Game = {
     for (const a of this.announcements) a.t += realDt;
     this.announcements = this.announcements.filter((a) => a.t < a.dur);
     this.comboPop = Math.max(0, this.comboPop - realDt);
+    if (this.rankPop > 0) this.rankPop = Math.max(0, this.rankPop - realDt);
     if (this.freezeT > 0) this.freezeT -= realDt;
     else {
       this.acc += realDt * this.slowScale;
@@ -235,6 +298,8 @@ const Game = {
     if (!this.player.dead && !cine) Director.update(dt);
     FX.update(dt);
     if (this.comboT > 0) { this.comboT -= dt; if (this.comboT <= 0) this.combo = 0; }
+    this.styleIdle += dt;
+    if (this.styleIdle > 1.2 && this.style > 0) this.style = Math.max(0, this.style - (4 + this.style * 0.06) * dt);
     this.enemies = this.enemies.filter((e) => !e.dead);
     this.projectiles = this.projectiles.filter((b) => !b.dead);
     this.hazards = this.hazards.filter((h) => !h.dead);

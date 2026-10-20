@@ -263,7 +263,19 @@ const Sound = (() => {
       tone({ type: 'triangle', f0: 1500, f1: 300, dur: 0.35, vol: 0.12 });
       tone({ type: 'triangle', f0: 1100, f1: 200, dur: 0.4, vol: 0.1, delay: 0.03 });
     },
-    shieldRegen() { tone({ type: 'sine', f0: 400, f1: 1300, dur: 0.4, vol: 0.05, a: 0.15 }); },
+    // shield starts recharging: a soft rising hum with a click
+    shieldRegen() {
+      tone({ type: 'triangle', f0: 220, f1: 660, dur: 0.45, vol: 0.07, a: 0.08, rev: 0.3 });
+      tone({ type: 'sine', f0: 440, f1: 1320, dur: 0.45, vol: 0.04, a: 0.1 });
+      noise({ dur: 0.03, vol: 0.08, type: 'highpass', f0: 5000 });
+    },
+    // shield fully charged: two bright notes and a shimmer
+    shieldFull() {
+      tone({ type: 'triangle', f0: 1046, dur: 0.12, vol: 0.07, rev: 0.4 });
+      tone({ type: 'triangle', f0: 1568, dur: 0.22, vol: 0.07, delay: 0.08, rev: 0.5 });
+      tone({ type: 'sine', f0: 3136, dur: 0.25, vol: 0.025, delay: 0.08, rev: 0.5 });
+      noise({ dur: 0.2, vol: 0.05, type: 'highpass', f0: 7000, delay: 0.06 });
+    },
     ultReady() {
       [660, 880, 1320, 1760].forEach((f, i) => tone({ type: 'triangle', f0: f, dur: 0.25, vol: 0.07, delay: i * 0.07, rev: 0.4 }));
     },
@@ -442,6 +454,15 @@ const Sound = (() => {
       for (const [f, d] of [[196, 0], [247, 0.0], [294, 0], [392, 0.12]]) tone({ type: 'triangle', f0: f, dur: 1.4, vol: 0.09, delay: d, rev: 0.6 });
       tone({ type: 'sine', f0: 98, f1: 92, dur: 1.6, vol: 0.4, rev: 0.5 });
       noise({ dur: 0.6, vol: 0.2, type: 'highpass', f0: 4000, rev: 0.6 });
+    },
+    rankUp() {
+      tone({ type: 'square', f0: 880, f1: 1320, dur: 0.08, vol: 0.04 });
+      tone({ type: 'triangle', f0: 1760, dur: 0.12, vol: 0.04, delay: 0.05, rev: 0.3 });
+    },
+    guardUp() {
+      tone({ type: 'triangle', f0: 700, f1: 1400, dur: 0.18, vol: 0.08, rev: 0.4 });
+      noise({ dur: 0.12, vol: 0.18, type: 'highpass', f0: 4000 });
+      tone({ type: 'sine', f0: 140, f1: 90, dur: 0.15, vol: 0.3 });
     },
     ui() { tone({ type: 'square', f0: 660, dur: 0.04, vol: 0.05 }); },
     uiHover() { tone({ type: 'sine', f0: 990, dur: 0.02, vol: 0.02 }); },

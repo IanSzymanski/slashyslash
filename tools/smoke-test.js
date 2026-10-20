@@ -17,8 +17,8 @@ const seconds = Number(process.argv[2] || 90);
   await page.goto('file://' + path.resolve(__dirname, '..', 'index.html'));
   await page.waitForTimeout(500);
 
-  for (const mode of ['demo', 'endless', 'boss', 'duel']) {
-    await page.click({ demo: '#btn-demo', endless: '#btn-endless', boss: '#btn-boss', duel: '#btn-duel' }[mode]);
+  for (const mode of ['demo', 'endless', 'boss', 'duel', 'training']) {
+    await page.click({ demo: '#btn-demo', endless: '#btn-endless', boss: '#btn-boss', duel: '#btn-duel', training: '#btn-training' }[mode]);
     const res = await page.evaluate(([frames, mode]) => {
       const problems = [];
       S.gameplay.invincible = true;
@@ -32,6 +32,10 @@ const seconds = Number(process.argv[2] || 90);
         }
         if (Math.random() < 0.05) { Input.mx = Math.random() * 480; Input.my = Math.random() * 270; }
         if (f % 1800 === 0) Game.player.ultCharge = 1;
+        // endless upgrade picks: take the first offer
+        if (Game.state === 'pick') Game.chooseUpgrade(UI.pickIds[0]);
+        // training: spawn something new every few seconds
+        if (mode === 'training' && f % 300 === 0) Training.spawn(TRAIN_TYPES[(f / 300) % TRAIN_TYPES.length][0]);
         // in the rival fight, force the phase change and the knockout so both cutscenes run under random input
         const rival = Game.enemies.find((e) => e.isBoss && !e.dying);
         if ((mode === 'boss' || mode === 'duel') && rival && !rival.spawning) {
@@ -45,7 +49,7 @@ const seconds = Number(process.argv[2] || 90);
         const m = Game.projectiles.find((q) => q.tetherable && !q.dead);
         if (m && Math.random() < 0.3) { Input.mx = m.x - Game.cam.x; Input.my = m.y - Game.cam.y; }
         Game.realTime += 1 / 60;
-        Game.step(1 / 60);
+        if (Game.state === 'playing') Game.step(1 / 60);
         if (f % 3 === 0) Render.draw(1 / 60);
         const p = Game.player;
         if (!isFinite(p.x) || !isFinite(p.y) || p.x < 0 || p.x > Level.W || p.y > Level.H + 50) problems.push(`player out of bounds at frame ${f}: ${p.x},${p.y}`);

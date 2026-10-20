@@ -19,7 +19,7 @@ registerUltimate({
     p.vx *= 0.5; p.vy = -140;
     p.loops.saw = Sound.loop('saw');
     Sound.play('ultActivate');
-    Game.slowmo(0.25, 0.35);
+    Game.slowmo(0.25, 0.35, true);
     Game.shake(0.6);
     Game.hitstop(0.08);
     FX.flash('#ff2040', 0.5);
@@ -67,7 +67,18 @@ registerUltimate({
           T.grindT = 0.1;
           const shielded = e.shielded && e.shielded();
           if (!shielded) T.grindN++;
-          const dmg = Math.min(150, 5 * Math.pow(1.16, T.grindN));
+          // bosses cap the compounding and throw you off after a moment
+          const dmg = Math.min(e.isBoss ? 25 : 150, 5 * Math.pow(1.16, T.grindN));
+          T.grindTotal = (T.grindTotal || 0) + 0.1;
+          if (e.isBoss && T.grindTotal > 1.2) {
+            p.releaseTether();
+            p.vx = sign(p.x - e.x || 1) * 420; p.vy = -300;
+            FX.ring(e.x, e.cy, 4, 40, 0.3, { c: '#4af0ff', core: '#ffffff', w: 2 });
+            FX.text('THROWN OFF', e.x, e.y - 36, { c: '#4af0ff', always: true, dur: 0.8, vy: -22 });
+            Sound.play('shieldDeflect');
+            Game.shake(0.3);
+            return;
+          }
           hurtEnemy(e, dmg, { cause: 'saw', noKnock: true, stagger: 0.3, hitstop: 0, angle: rand(0, TAU), crit: dmg >= 60 });
           Sound.play('sawHit');
           FX.sparks(p.x, p.cy, 6 + Math.min(10, T.grindN / 2), rand(0, TAU), TAU, 80, 260);

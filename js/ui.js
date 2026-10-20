@@ -25,6 +25,11 @@ const UI = {
     }
     try { const t = safeStorageGet('slashyslash.tab'); if (t && SETTINGS_SCHEMA[t]) this.tab = t; } catch (e) { /* ignore */ }
     this.refreshBest();
+    window.addEventListener('keydown', (e) => {
+      if (Game.state !== 'pick' || !this.pickIds) return;
+      const i = ['Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'].indexOf(e.code) % 3;
+      if (i >= 0 && this.pickIds[i]) { e.preventDefault(); Sound.play('ui'); Game.chooseUpgrade(this.pickIds[i]); }
+    });
   },
   show(id) {
     if (!id && document.activeElement && document.activeElement.blur) document.activeElement.blur();
@@ -32,10 +37,12 @@ const UI = {
     document.body.classList.toggle('in-menu', !!id);
     if (id === 'howto') this.renderHowTo();
     if (id === 'settings') this.renderSettings();
+    if (id === 'train') Training.render();
     const first = id && this.panels[id].querySelector('button');
     if (first) first.focus({ preventScroll: true });
   },
   hideAll() { this.show(null); },
+  pausePanel() { return Game.mode === 'training' ? 'train' : 'pause'; },
   openPanel() { return Object.keys(this.panels).find((k) => !this.panels[k].hidden) || null; },
   act(a, el) {
     switch (a) {
@@ -43,13 +50,18 @@ const UI = {
       case 'endless': Game.newRun('endless'); break;
       case 'boss': Game.newRun('boss'); break;
       case 'duel': Game.newRun('duel'); break;
+      case 'training': Game.newRun('training'); break;
+      case 'pick': Game.chooseUpgrade(el.dataset.id); break;
       case 'resume': Game.resume(); break;
       case 'restart': Game.newRun(Game.mode); break;
       case 'continue-endless': Game.newRun('endless'); break;
       case 'quit': Game.toMenu(); break;
-      case 'settings': this.returnTo = Game.state === 'menu' ? 'menu' : Game.state === 'over' ? 'over' : 'pause'; this.show('settings'); break;
-      case 'howto': this.returnTo = Game.state === 'menu' ? 'menu' : 'pause'; this.show('howto'); break;
+      case 'settings': this.returnTo = Game.state === 'menu' ? 'menu' : Game.state === 'over' ? 'over' : this.pausePanel(); this.show('settings'); break;
+      case 'howto': this.returnTo = Game.state === 'menu' ? 'menu' : this.pausePanel(); this.show('howto'); break;
       case 'back': this.show(this.returnTo); break;
+      default:
+        if (a.startsWith('train-')) Training.act(a, el);
+        break;
       case 'reset-tab':
         if (this.tab === 'enemies') { resetSettings('enemies'); resetSettings('gameplay'); }
         else resetSettings(this.tab === 'audio' ? 'audio' : this.tab);
@@ -64,6 +76,16 @@ const UI = {
   },
   applyVisualToggles() {
     document.getElementById('scanlines').hidden = !S.visuals.scanlines;
+  },
+
+  // ---------- endless upgrade pick ----------
+  showPick(ids) {
+    this.pickIds = ids;
+    document.getElementById('pick-cards').innerHTML = ids.map((id, i) => {
+      const u = UPGRADES[id];
+      return `<button type="button" class="card" data-act="pick" data-id="${id}"><span class="key">${i + 1}</span><b>${u.name}</b><small>${u.desc}</small></button>`;
+    }).join('');
+    this.show('pick');
   },
 
   // ---------- results ----------
@@ -97,7 +119,7 @@ const UI = {
       ['Jump / double jump / wall jump', actionLabel('jump')],
       ['Crouch · slide while running', actionLabel('crouch')],
       ['Bullet jump (toward cursor)', `${actionLabel('crouch')} + ${actionLabel('jump')}`],
-      ['Drop through platform', `Hold ${actionLabel('crouch')}`],
+      ['Drop through platform', S.controls.dropDoubleTap ? `Double-tap ${actionLabel('crouch')}` : `Hold ${actionLabel('crouch')}`],
       ['Dash (2 charges, invulnerable)', `${actionLabel('dash')} + direction`],
       ['Dash slash', `${actionLabel('attack')} during a dash`],
       ['Slash combo (3 hits, aim with mouse)', actionLabel('attack')],
@@ -109,7 +131,9 @@ const UI = {
       ['Grab, swing and throw barrels', `Hold ${actionLabel('tether')}, release`],
       ['Rebound a pulse grenade (slows time)', `${actionLabel('tether')} on it, aim`],
       ['Sawblade ultimate (when charged)', `Hold ${actionLabel('ultimate')} 1s`],
-      ['Pause', actionLabel('pause')],
+      ['Pause (training: spawn panel)', actionLabel('pause')],
+      ['Skip a cutscene you have seen', `Hold ${actionLabel('sheathe')}`],
+      ['Pick an endless upgrade', 'Click, or 1 / 2 / 3'],
     ];
     document.getElementById('howto-table').innerHTML = rows.map(([a, k]) => `<tr><td>${a}</td><td><kbd>${k}</kbd></td></tr>`).join('');
   },
