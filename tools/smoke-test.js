@@ -1,0 +1,54 @@
+#!/usr/bin/env node
+// Headless smoke test: boots the game, plays both modes with random input, and fails on any page error.
+// Needs Playwright with Chromium:  npm i -D playwright && npx playwright install chromium
+// Usage: node tools/smoke-test.js [seconds-of-simulated-play]
+'use strict';
+const path = require('path');
+const { chromium } = require('playwright');
+
+const seconds = Number(process.argv[2] || 90);
+
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.stack || e.message));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html'));
+  await page.waitForTimeout(500);
+
+  for (const mode of ['demo', 'endless']) {
+    await page.click(mode === 'demo' ? '#btn-demo' : '#btn-endless');
+    const res = await page.evaluate((frames) => {
+      const problems = [];
+      S.gameplay.invincible = true;
+      S.enemies.waveBreak = 1;
+      const codes = ['KeyA', 'KeyD', 'KeyW', 'KeyS', 'ShiftLeft', 'Mouse0', 'KeyE', 'Mouse2', 'KeyQ', 'KeyR'];
+      for (let f = 0; f < frames; f++) {
+        for (const c of codes) {
+          const held = Input.down.has(c);
+          if (!held && Math.random() < (c === 'Mouse0' ? 0.12 : 0.04)) { Input.down.add(c); Input.pressed.add(c); }
+          else if (held && Math.random() < 0.12) { Input.down.delete(c); Input.released.add(c); }
+        }
+        if (Math.random() < 0.05) { Input.mx = Math.random() * 480; Input.my = Math.random() * 270; }
+        if (f % 1800 === 0) Game.player.ultCharge = 1;
+        Game.realTime += 1 / 60;
+        Game.step(1 / 60);
+        if (f % 3 === 0) Render.draw(1 / 60);
+        const p = Game.player;
+        if (!isFinite(p.x) || !isFinite(p.y) || p.x < 0 || p.x > Level.W || p.y > Level.H + 50) problems.push(`player out of bounds at frame ${f}: ${p.x},${p.y}`);
+        if (problems.length) break;
+      }
+      return { problems, wave: Director.wave, kills: Game.stats.kills };
+    }, seconds * 60);
+    console.log(`${mode}: wave ${res.wave}, ${res.kills} kills`);
+    errors.push(...res.problems);
+    await page.evaluate(() => Game.toMenu());
+  }
+  await browser.close();
+  if (errors.length) {
+    console.error('FAILED\n' + errors.join('\n'));
+    process.exit(1);
+  }
+  console.log('OK');
+})();
