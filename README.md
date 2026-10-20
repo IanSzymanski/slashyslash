@@ -20,7 +20,7 @@ node tools/build.js
 
 Keyboard and mouse are required. Settings and best scores are saved in the browser's local storage.
 
-A headless smoke test plays all three modes with random input and fails on any page error (needs Playwright with Chromium):
+A headless smoke test plays every mode with random input and fails on any page error (needs Playwright with Chromium):
 
 ```sh
 npm i -D playwright && npx playwright install chromium
@@ -85,6 +85,7 @@ Every binding can be changed in **Settings → Controls** (two slots per action)
 - **Wave Demo:** six scripted waves that introduce each enemy, then the rival. The results screen offers a jump straight into endless.
 - **Endless Survival:** waves grow in size and toughness without limit. Every fifth wave is a heavy wave with extra brutes, and every eighth brings the rival back, tougher each time (toggle in settings). Your best wave and score are saved.
 - **Rival Fight:** straight into the AEGIS-07 fight.
+- **Melee Duel:** a test mode that starts AEGIS-07 in its blade-only second phase at half health, for practising the parry, counter and riposte exchange. Winning plays the knockout but doesn't unlock the character.
 
 Enemies:
 

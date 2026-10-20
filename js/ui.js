@@ -42,6 +42,7 @@ const UI = {
       case 'demo': Game.newRun('demo'); break;
       case 'endless': Game.newRun('endless'); break;
       case 'boss': Game.newRun('boss'); break;
+      case 'duel': Game.newRun('duel'); break;
       case 'resume': Game.resume(); break;
       case 'restart': Game.newRun(Game.mode); break;
       case 'continue-endless': Game.newRun('endless'); break;
@@ -68,10 +69,12 @@ const UI = {
   // ---------- results ----------
   showOver(victory) {
     const st = Game.stats;
-    const boss = Game.mode === 'boss';
-    document.getElementById('over-title').textContent = victory ? (boss ? 'Rival defeated' : 'Demo complete') : 'Signal lost';
+    const boss = Game.mode === 'boss', duel = Game.mode === 'duel';
+    document.getElementById('over-title').textContent = victory ? (duel ? 'Duel won' : boss ? 'Rival defeated' : 'Demo complete') : 'Signal lost';
     let sub;
-    if (victory) sub = boss ? 'AEGIS-07 is down and unlocked for a future character roster.' : 'All demo waves cleared, rival included. AEGIS-07 is unlocked for a future character roster.';
+    if (victory && duel) sub = 'You beat AEGIS-07 blade to blade. Practice only: win the full Rival Fight to unlock it.';
+    else if (victory) sub = boss ? 'AEGIS-07 is down and unlocked for a future character roster.' : 'All demo waves cleared, rival included. AEGIS-07 is unlocked for a future character roster.';
+    else if (duel) sub = 'AEGIS-07 won the duel. Parry a swing, let it parry your counter, then parry its gold riposte.';
     else if (boss) sub = 'AEGIS-07 holds the street. Tether its pulse grenade and slash it back to break the shield.';
     else if (Game.mode === 'endless') sub = `You held the street until wave ${Director.wave}.`;
     else sub = Director.wave === 0 ? 'Down before the first wave.' : `Down on wave ${Director.wave} of ${DEMO_WAVES.length}.`;
@@ -82,7 +85,7 @@ const UI = {
       ['Best combo', st.maxCombo], ['Parries', st.parries], ['Time', `${mm}:${ss}`],
     ];
     document.getElementById('over-stats').innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
-    document.getElementById('over-continue').hidden = !victory;
+    document.getElementById('over-continue').hidden = !victory || duel;
     this.refreshBest();
     this.show('over');
   },

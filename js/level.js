@@ -127,6 +127,8 @@ const Level = {
         b.y += sy;
         const l = b.x - b.w / 2, r = b.x + b.w / 2, t = b.y - b.h, bt = b.y;
         for (const s of solids) {
+          // cover stands on the street, so it is never a ceiling: a body inside it rising leaves through the top
+          if (sy < 0 && s.kind === 'cover') continue;
           if (r > s.x && l < s.x + s.w && bt > s.y && t < s.y + s.h) {
             if (sy > 0) { b.y = s.y; c.ground = true; c.landed = s; } else { b.y = s.y + s.h + b.h; c.ceil = true; }
             b.vy = 0;

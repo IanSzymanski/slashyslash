@@ -1,5 +1,5 @@
 'use strict';
-// Wave director for the scripted demo and endless survival.
+// Wave director for the scripted demo, endless survival, the rival fight and the melee duel test mode.
 
 const DEMO_WAVES = [
   { name: 'SCRAP SWARM', list: ['scrapper', 'scrapper', 'scrapper', 'scrapper'] },
@@ -26,7 +26,8 @@ const Director = {
     this.mode = mode; this.wave = 0; this.state = 'intro'; this.breakT = 1.4; this.queue = [];
   },
   enabledTypes() { return ['scrapper', 'gunner', 'drone', 'brute'].filter((t) => S.enemies[t]); },
-  lastWave() { return this.mode === 'boss' ? 1 : this.mode === 'demo' ? DEMO_WAVES.length : Infinity; },
+  soloRival() { return this.mode === 'boss' || this.mode === 'duel'; },
+  lastWave() { return this.soloRival() ? 1 : this.mode === 'demo' ? DEMO_WAVES.length : Infinity; },
   buildDemo(n) {
     const def = DEMO_WAVES[n - 1];
     this.bossWave = !!def.boss;
@@ -68,14 +69,14 @@ const Director = {
   },
   nextWave() {
     this.wave++;
-    if (this.mode === 'boss') { this.bossWave = true; this.scale = { hp: 1, dmg: 1 }; this.waveName = 'RIVAL'; this.queue = []; }
+    if (this.soloRival()) { this.bossWave = true; this.scale = { hp: 1, dmg: 1 }; this.waveName = this.mode === 'duel' ? 'PHASE 2 ONLY' : 'RIVAL'; this.queue = []; }
     else this.queue = this.mode === 'demo' ? this.buildDemo(this.wave) : this.buildEndless(this.wave);
     this.total = this.queue.length;
     this.spawnT = this.bossWave ? 4 : 0.8;
     this.state = 'fight';
     if (this.bossWave) this.spawnRival();
-    const title = this.mode === 'boss' ? 'RIVAL FIGHT' : 'WAVE ' + this.wave + (this.mode === 'demo' ? ' / ' + DEMO_WAVES.length : '');
-    Game.announce(title, this.waveName, this.bossWave ? '#4af0ff' : '#ff3a52', 2.2);
+    const title = this.mode === 'duel' ? 'MELEE DUEL' : this.mode === 'boss' ? 'RIVAL FIGHT' : 'WAVE ' + this.wave + (this.mode === 'demo' ? ' / ' + DEMO_WAVES.length : '');
+    Game.announce(title, this.waveName, this.mode === 'duel' ? '#ff6a7a' : this.bossWave ? '#4af0ff' : '#ff3a52', 2.2);
     Sound.play('waveStart');
     Sound.setIntensity(1);
     Game.resetProps();
@@ -112,14 +113,17 @@ const Director = {
     Game.player.heal(15);
     if (this.mode === 'endless' && this.wave > SaveData.bestWave) { SaveData.bestWave = this.wave; saveProgress(); }
     const last = this.wave >= this.lastWave();
-    Game.announce(last ? (this.mode === 'boss' ? 'RIVAL DEFEATED' : 'DEMO CLEAR') : 'WAVE CLEAR', '+' + bonus + ' PTS', '#7dff8a', 1.8);
+    const done = this.mode === 'duel' ? 'DUEL WON' : this.mode === 'boss' ? 'RIVAL DEFEATED' : 'DEMO CLEAR';
+    Game.announce(last ? done : 'WAVE CLEAR', '+' + bonus + ' PTS', '#7dff8a', 1.8);
     this.state = 'break';
     this.breakT = last ? 2 : S.enemies.waveBreak;
   },
   spawnRival() {
     const p = Game.player;
     const x = Level.freeGroundX(clamp(p.x < Level.W / 2 ? p.x + 300 : p.x - 300, 120, Level.W - 120), 12);
-    Game.enemies.push(new Rival(x, Level.GROUND, this.scale));
+    const r = new Rival(x, Level.GROUND, this.scale);
+    if (this.mode === 'duel') r.startPhase2();
+    Game.enemies.push(r);
     Sound.play('spawn');
   },
   spawn(type) {

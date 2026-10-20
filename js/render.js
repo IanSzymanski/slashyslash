@@ -293,7 +293,7 @@ const Render = {
     const boss = G.enemies.find((e) => e.isBoss && !e.dead && !e.spawning);
     if (boss) this.drawBossBar(ctx, boss, t);
     else if (D.wave > 0) {
-      const label = G.mode === 'boss' ? 'RIVAL FIGHT' : (G.mode === 'demo' ? 'DEMO ' : 'ENDLESS ') + 'WAVE ' + D.wave;
+      const label = G.mode === 'duel' ? 'MELEE DUEL' : G.mode === 'boss' ? 'RIVAL FIGHT' : (G.mode === 'demo' ? 'DEMO ' : 'ENDLESS ') + 'WAVE ' + D.wave;
       drawText(ctx, label, VIEW_W / 2, 6, { align: 'center', color: '#ffd0d8' });
       let sub;
       if (D.state === 'fight') sub = D.remaining() + ' HOSTILES';

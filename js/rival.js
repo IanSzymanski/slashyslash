@@ -65,6 +65,12 @@ class Rival extends Enemy {
     this.riseV = 0; this.ko = null; this.koT = 0;
   }
 
+  // Melee duel test mode: skip straight to the blade-only phase at half health.
+  startPhase2() {
+    this.phase = 2; this.pal = AEGIS_PAL_P2; this.shield = false; this.duel = true;
+    this.hp = Math.floor(this.maxHp / 2); this.cds.combo = 0.6;
+  }
+
   // ---------- damage hooks used by hurtEnemy ----------
   shielded() { return this.shield && !this.dying; }
   dodging() { return this.dashT > 0 || this.dodgeT > 0; }
@@ -191,7 +197,8 @@ class Rival extends Enemy {
         Sound.play('shockwave', { power: 0.8 });
         Sound.play('bossRoar');
         Game.shake(0.45);
-        Game.announce(this.name, 'TETHER ITS GRENADE, SLASH IT BACK', '#4af0ff', 2.6);
+        if (this.duel) Game.announce(this.name, 'PARRY A SWING, THEN PARRY ITS RIPOSTE', '#ff6a7a', 2.6);
+        else Game.announce(this.name, 'TETHER ITS GRENADE, SLASH IT BACK', '#4af0ff', 2.6);
         this.act = { kind: 'intro', t: 0 };
       }
       return;
@@ -694,12 +701,14 @@ class Rival extends Enemy {
     this.dead = true;
     this.stopLoops();
     if (this.spriteCopy) Game.props.push(new RivalHusk(this));
-    SaveData.unlocks.aegis = true;
-    SaveData.bossKills++;
-    saveProgress();
     Game.onKill(this, { cause: 'boss' });
     Game.closeCine();
     Sound.setIntensity(0.3);
+    // the duel is a practice shortcut, so only a full fight unlocks the character
+    if (this.duel) return;
+    SaveData.unlocks.aegis = true;
+    SaveData.bossKills++;
+    saveProgress();
     Game.announce('AEGIS-07 UNLOCKED', 'DEFEATED RIVALS JOIN YOUR ROSTER', '#ffd070', 3);
   }
   koPose(o) {

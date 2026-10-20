@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Headless smoke test: boots the game, plays both modes with random input, and fails on any page error.
+// Headless smoke test: boots the game, plays every mode with random input, and fails on any page error.
 // Needs Playwright with Chromium:  npm i -D playwright && npx playwright install chromium
 // Usage: node tools/smoke-test.js [seconds-of-simulated-play]
 'use strict';
@@ -17,8 +17,8 @@ const seconds = Number(process.argv[2] || 90);
   await page.goto('file://' + path.resolve(__dirname, '..', 'index.html'));
   await page.waitForTimeout(500);
 
-  for (const mode of ['demo', 'endless', 'boss']) {
-    await page.click({ demo: '#btn-demo', endless: '#btn-endless', boss: '#btn-boss' }[mode]);
+  for (const mode of ['demo', 'endless', 'boss', 'duel']) {
+    await page.click({ demo: '#btn-demo', endless: '#btn-endless', boss: '#btn-boss', duel: '#btn-duel' }[mode]);
     const res = await page.evaluate(([frames, mode]) => {
       const problems = [];
       S.gameplay.invincible = true;
@@ -34,8 +34,8 @@ const seconds = Number(process.argv[2] || 90);
         if (f % 1800 === 0) Game.player.ultCharge = 1;
         // in the rival fight, force the phase change and the knockout so both cutscenes run under random input
         const rival = Game.enemies.find((e) => e.isBoss && !e.dying);
-        if (mode === 'boss' && rival && !rival.spawning) {
-          if (f === Math.floor(frames / 3)) rival.hp = Math.floor(rival.maxHp / 2);
+        if ((mode === 'boss' || mode === 'duel') && rival && !rival.spawning) {
+          if (mode === 'boss' && f === Math.floor(frames / 3)) rival.hp = Math.floor(rival.maxHp / 2);
           if (f === Math.floor((frames * 2) / 3) && rival.phase === 2 && !Game.cine) {
             rival.transT = 0; rival.guardT = 0; rival.parryInvulnT = 0; rival.dashT = 0; rival.dodgeT = 0; rival.hp = 1;
             hurtEnemy(rival, 5, { cause: 'slash' });
