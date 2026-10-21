@@ -796,7 +796,6 @@ class Player {
     if (!s.refunded && this.shieldOffT <= 0 && !Game.has('openGuard')) {
       s.refunded = true;
       this.shield = Math.min(PC.MAX_SHIELD, this.shield + PC.PARRY_COST);
-      FX.text('+' + PC.PARRY_COST + ' SHIELD', this.x, this.y - 40, { c: '#5ad8ff', always: true, dur: 0.8, vy: -18 });
     }
     Sound.play('parry');
     Game.slowmo(0.22, 0.42);
@@ -809,7 +808,6 @@ class Player {
     FX.sparks(cx + Math.cos(ang) * 8, cy + Math.sin(ang) * 8, 22, ang, 1.6, 80, 300, { c0: '#ffffff', c1: '#ffe080', c2: '#ff5a3a' });
     FX.elec(cx, cy, 22, 6, { outer: '#ffb040', core: '#ffffff' });
     FX.light(cx, cy, 90, '#ffe0a0', 1, 0.4);
-    FX.text(clash ? 'CLASH' : 'PARRY', this.x, this.y - 32, { c: clash ? '#7af0ff' : '#ffe8a0', always: true, dur: 0.9, vy: -26 });
     if (h.proj) h.proj.reflect(this.aimAngle, 1.9, 40);
     else if (h.source && h.source.stagger) h.source.stagger(1.3, sign(h.source.x - this.x) * 220);
     this.iframes = Math.max(this.iframes, 0.2);
@@ -843,10 +841,7 @@ class Player {
     FX.flash(cfg.empowered ? '#fff4d0' : '#ff3048', cfg.flash);
     Game.hitstop(cfg.empowered ? 0.045 : 0.02);
     FX.light(sx, sy, cfg.empowered ? 90 : 50, cfg.empowered ? '#ffe0a0' : '#ff3048', 1, 0.3);
-    if (cfg.empowered) {
-      Game.announce('COUNTER', null, '#ffd070', 0.9);
-      Game.slowmo(0.3, 0.3);
-    }
+    if (cfg.empowered) Game.slowmo(0.3, 0.3);
   }
   moveIaido(dt) {
     const I = this.iaido;

@@ -487,8 +487,7 @@ const Render = {
       ctx.globalAlpha = 1;
       drawText(ctx, b.cracks ? `SHIELD CRACKED ${b.cracks}/3 - RETURN BOLTS OR REBOUND THE GRENADE` : 'SHIELDED - REBOUND ITS GRENADE OR RETURN 3 BOLTS', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
     } else if (b.stunT > 0) drawText(ctx, 'STUNNED', VIEW_W / 2, y + 7, { align: 'center', color: '#ffffff' });
-    else if (b.phase === 2) drawText(ctx, b.guardT > 0 ? 'GUARDING - BAIT THE RIPOSTE AND PARRY IT' : 'LIMITERS OFF - PARRY, THEN PARRY ITS RIPOSTE', VIEW_W / 2, y + 7, { align: 'center', color: '#ff8a9a' });
-    else drawText(ctx, 'SHIELD BACK IN ' + Math.ceil(b.shieldDownT), VIEW_W / 2, y + 7, { align: 'center', color: '#7a9aa6' });
+    else if (b.phase !== 2) drawText(ctx, 'SHIELD BACK IN ' + Math.ceil(b.shieldDownT), VIEW_W / 2, y + 7, { align: 'center', color: '#7a9aa6' });
   },
   drawIndicators(ctx) {
     const cam = Game.cam;

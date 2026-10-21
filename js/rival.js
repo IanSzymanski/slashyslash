@@ -154,7 +154,6 @@ class Rival extends Enemy {
         FX.ring(this.x, this.cy, 4, 40, 0.35, { c: '#ffd070', core: '#ffffff', w: 2 });
         Sound.play('bossShieldBreak');
         Game.slowmo(0.25, 0.5, true);
-        Game.announce('STAGGERED', 'PUNISH IT', '#ffd070', 1.4);
         return;
       }
       // blades lock and it raises a guard, ready to parry whatever you throw next
@@ -192,7 +191,6 @@ class Rival extends Enemy {
     const [cx, cy] = this.chest();
     FX.ring(cx, cy, 4, 34, 0.28, { c: '#4af0ff', core: '#ffffff', w: 2 });
     FX.sparks(cx + this.facing * 8, cy, 18, Math.PI + (this.facing > 0 ? 0 : Math.PI), 1.6, 80, 280, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a' });
-    FX.text('PARRIED', this.x, this.y - 34, { c: '#4af0ff', always: true, dur: 0.8, vy: -24 });
     Sound.play('parry');
     Game.hitstop(0.06);
     Game.shake(0.2);
@@ -202,7 +200,6 @@ class Rival extends Enemy {
     const real = this.tele(RIVAL_MOVES.riposte.wind) / RIPOSTE_BT_SCALE;
     Game.bulletTime(real + 0.2, { kind: 'riposte', scale: RIPOSTE_BT_SCALE, owner: this });
     Sound.play('riposteCue', { dur: real + 0.06 });
-    Game.announce('COUNTERED', 'PARRY AS THE RING CLOSES', '#ffd070', 1.0, true);
   }
   windingUp() {
     const a = this.act;
@@ -286,7 +283,7 @@ class Rival extends Enemy {
       this.pal = AEGIS_PAL_P2; this.shield = false; this.act = null; this.transT = 0.3; this.cds.combo = 1.2;
       FX.ring(this.x, this.cy, 4, 60, 0.4, { c: '#ff6a7a', core: '#ffffff', w: 2 });
       Sound.play('bossRoar');
-      Game.announce('MELEE DUEL', 'PARRY A SWING, THEN PARRY ITS RIPOSTE', '#ff6a7a', 2.2);
+      Game.announce('MELEE DUEL', null, '#ff6a7a', 2.2);
       return;
     }
     const hadShield = this.shield, p = Game.player;
@@ -381,7 +378,7 @@ class Rival extends Enemy {
     Game.closeCine();
     // a breather before the first combo
     this.act = null; this.transT = 0.3; this.cds.combo = 1.2; this.riseV = 0; this.hover = false;
-    Game.announce(this.duel ? 'MELEE DUEL' : 'PHASE 2', 'PARRY A SWING, THEN PARRY ITS RIPOSTE', '#ff6a7a', 2.2);
+    Game.announce(this.duel ? 'MELEE DUEL' : 'PHASE 2', null, '#ff6a7a', 2.2);
   }
   chooseAct(p) {
     const dx = p.x - this.x, adx = Math.abs(dx), dy = p.y - this.y;
@@ -1272,7 +1269,6 @@ class PulseGrenade {
     if (o.blocked) {
       FX.ring(this.x, this.y, 3, 30, 0.3, { c: '#ffd070', core: '#ffffff', w: 2 });
       FX.sparks(this.x, this.y, 20, 0, TAU, 60, 220, { c0: '#ffffff', c1: '#ffe080', c2: '#145e6a' });
-      FX.text('BLOCKED', this.x, this.y - 14, { c: '#ffd070', always: true, dur: 0.7, vy: -24 });
       Sound.play('blocked');
       Game.shake(0.2);
       return;
