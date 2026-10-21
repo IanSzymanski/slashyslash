@@ -297,13 +297,17 @@ Done when: `slashyslash2/index.html` shows a lit test room, the 3D smoke test pa
 
 If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, change the arena clearances and the camera's pivot and distance before changing anything else. Don't start Phase 2 until all four pass.
 
-**Status: built, except the player's model, rig, poses and scarf**, which wait on the model's design; a stand-in figure takes their place. The feel test is next. Notes from the build:
+**Status: built.** The feel test is next. Notes from the build:
 
 - Pulled forward from Phase 3 because feel-test item 2 needs them: the camera rule for attack slots, glints drawn over walls at a minimum size, threat ring markers (wind-ups, glints, hit direction), pickups and damage numbers.
 - The street's 2D buildings became solid blocks behind the street with walkable roofs; a row of facades too tall to climb closes the front, so the street is a 14 m canyon. Platforms are solid slabs you mantle onto. `feel-check.js` confirms every tier is reachable (highest climb 9.1 m against a 9.7 m reach) and the clearance rules hold (street 14 m, headroom 5.55 m, narrowest alley 6.36 m).
 - Converted movement: run 13.8 m/s, jump 4.4 m, double jump 8.2 m, dash 6.2 m, slide 10.9 m.
 - The camera's vertical smoothing can lag the pivot into a platform right after a climb, so the pivot is swept up from the top of the head before the camera is swept back from the pivot.
 - Lights are baked per vertex on a grid of at most 1 m with shadow rays (about 50 ms at load); characters take the baked light under their feet through a uniform, so the scene has no ambient light.
+- The player model follows the concept sheets loosely: charcoal voxel-noise armour, a red right arm, a glowing visor, helmet fins, gold fittings, red running lights, a glowing curved katana and a scarf fraying to black. It is rigid parts on bones like the scrapper (one draw call, gibs on death).
+- Poses reuse the 2D pose function's logic: its feet and hand targets on the side plane are mapped into 3D and reached with two-bone IK, and swings point the blade along the 3D arc the trail uses. This covers more than Phase 2's "new 3D poses" list asks for; those poses may only need tuning.
+- The scarf is a verlet chain (7 points) pinned at the neck, pushed back by speed and drifting left, kept out of the torso and above the ground.
+- Characters get a cool rim light. Without it the dark armour disappeared against the night street.
 
 ### Phase 2: full move set (~2,300)
 
