@@ -211,7 +211,6 @@ const Render = {
       ctx.fillStyle = d < 60 ? '#ffffff' : '#ffd070';
       ctx.fillRect(Math.round(gx + Math.cos(ang) * d), Math.round(gy + Math.sin(ang) * d), 1, 1);
     }
-    drawText(ctx, 'AIM THE KICK', gx, gy + 14, { align: 'center', color: '#ffd070', outline: '#0b0910' });
   },
   gatherLights(cx, cy, t) {
     const G = Game;
@@ -421,21 +420,6 @@ const Render = {
       ay += step;
     }
     if (S.visuals.indicators) this.drawIndicators(ctx);
-    if (G.mode === 'demo' && G.stats.time < 16 && !p.dead) {
-      const k = G.stats.time > 13 ? 1 - (G.stats.time - 13) / 3 : 1;
-      if (k > 0 && (k > 0.3 || ((t * 10) | 0) % 2)) {
-        const l1 = `${hudKey('left')}/${hudKey('right')} MOVE   ${hudKey('jump')} JUMP x2   ${hudKey('crouch')} SLIDE, x2 DROP   ${hudKey('dash')} DASH`;
-        const l2 = `${hudKey('attack')} SLASH, HOLD HEAVY   ${hudKey('dash')}+${hudKey('attack')} DASH SLASH   ${hudKey('crouch')}+${hudKey('attack')} PLUNGE`;
-        const l3 = `${hudKey('sheathe')} PARRY   ${hudKey('utility')} ${(p.utility() || { hud: 'UTILITY' }).hud}   ${hudKey('tether')} FLING / ZIP / GRAB   HOLD ${hudKey('ultimate')} ULT`;
-        ctx.globalAlpha = Math.min(1, k);
-        ctx.fillStyle = 'rgba(8,5,12,0.6)';
-        ctx.fillRect(VIEW_W / 2 - 150, VIEW_H - 40, 300, 30);
-        drawText(ctx, l1, VIEW_W / 2, VIEW_H - 36, { align: 'center', color: '#e8d8e0' });
-        drawText(ctx, l2, VIEW_W / 2, VIEW_H - 27, { align: 'center', color: '#e8d8e0' });
-        drawText(ctx, l3, VIEW_W / 2, VIEW_H - 18, { align: 'center', color: '#ff8a9a' });
-        ctx.globalAlpha = 1;
-      }
-    }
     if (p.hp < 30 && !p.dead) {
       ctx.globalAlpha = 0.18 + Math.sin(t * 6) * 0.08;
       ctx.fillStyle = '#ff0020';
@@ -465,7 +449,7 @@ const Render = {
     if (active) drawText(ctx, 'SAW', cx, cy - 2, { align: 'center', color: '#ffffff' });
     else if (ready) {
       drawText(ctx, hudKey('ultimate').slice(0, 3), cx, cy - 2, { align: 'center', color: '#ffffff' });
-      drawText(ctx, 'HOLD ' + hudKey('ultimate') + ' - SAWBLADE', cx + 16, cy - 2, { color: ((t * 3) | 0) % 2 ? '#ff8a9a' : '#ffffff' });
+      drawText(ctx, 'SAWBLADE', cx + 16, cy - 2, { color: ((t * 3) | 0) % 2 ? '#ff8a9a' : '#ffffff' });
     } else {
       drawText(ctx, pct + '', cx, cy - 2, { align: 'center', color: '#9a8aa8' });
       drawText(ctx, 'SAWBLADE', cx + 16, cy - 2, { color: '#5a4a5a' });
@@ -485,7 +469,7 @@ const Render = {
       ctx.fillStyle = '#4af0ff';
       for (let i = 0; i < w; i += 2) if (((i + ((t * 20) | 0)) >> 1) % 3) ctx.fillRect(x + i, y, 1, 4);
       ctx.globalAlpha = 1;
-      drawText(ctx, b.cracks ? `SHIELD CRACKED ${b.cracks}/3 - RETURN BOLTS OR REBOUND THE GRENADE` : 'SHIELDED - REBOUND ITS GRENADE OR RETURN 3 BOLTS', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
+      drawText(ctx, b.cracks ? `SHIELD CRACKED ${b.cracks}/3` : 'SHIELDED', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
     } else if (b.stunT > 0) drawText(ctx, 'STUNNED', VIEW_W / 2, y + 7, { align: 'center', color: '#ffffff' });
     else if (b.phase !== 2) drawText(ctx, 'SHIELD BACK IN ' + Math.ceil(b.shieldDownT), VIEW_W / 2, y + 7, { align: 'center', color: '#7a9aa6' });
   },

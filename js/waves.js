@@ -29,7 +29,7 @@ const Director = {
   mode: 'demo', wave: 0, state: 'idle', queue: [], spawnT: 0, breakT: 0, waveName: '', total: 0, scale: { hp: 1, dmg: 1 }, bossWave: false, modifier: null,
 
   start(mode) {
-    this.mode = mode; this.wave = 0; this.state = mode === 'training' ? 'training' : 'intro'; this.breakT = 1.4; this.queue = []; this.hinted = {}; this.modifier = null;
+    this.mode = mode; this.wave = 0; this.state = mode === 'training' ? 'training' : 'intro'; this.breakT = 1.4; this.queue = []; this.modifier = null;
   },
   enabledTypes() { return ALL_TYPES.filter((t) => S.enemies[t]); },
   soloRival() { return this.mode === 'boss' || this.mode === 'duel'; },
@@ -161,8 +161,6 @@ const Director = {
     if (this.modifier === 'elite' && chance(0.3)) makeElite(e);
     Game.enemies.push(e);
     if (Math.abs(q.x - p.x) < 320) Sound.play('spawn');
-    const hint = ENEMY_HINTS[type];
-    if (hint && !this.hinted[type]) { this.hinted[type] = true; Game.announce(hint[0], hint[1], '#ffd070', 3, true); }
     return e;
   },
 };

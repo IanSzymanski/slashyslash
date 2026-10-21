@@ -91,7 +91,7 @@ Every binding can be changed in **Settings → Controls** (two slots per action)
 
 ## Modes
 
-- **Wave Demo:** six scripted waves, each introducing an enemy that one move answers (shields for parry, armour for plunges, grenades for the tether rebound, snipers for the tether zip), then the rival. Each new enemy type shows a one-line hint the first time it appears. The results screen offers a jump straight into endless.
+- **Wave Demo:** six scripted waves, each introducing an enemy that one move answers (shields for parry, armour for plunges, grenades for the tether rebound, snipers for the tether zip), then the rival. The results screen offers a jump straight into endless.
 - **Endless Survival:** waves grow in size and toughness without limit. Every fifth wave is a heavy wave with extra brutes, and every eighth brings the rival back, tougher each time (toggle in settings). Your best wave and score are saved.
   - **Upgrades:** after waves 2, 5, 8 and so on, pick one of three. Each changes how a move works and costs something elsewhere: Arc Conductor (longer, weaker counter lightning), Volt Hook (exploding tether strikes, no refund), Ember Wake (dashes cut, slower recharge), Open Guard (wider parry, no refund), Breaker (heavier finisher, lighter openers), Aftershock (plunge ground waves, weaker impact), Glass Edge (deal and take more), Bloodline (kills heal, slower shield).
   - **Wave modifiers:** from wave 4, about half the regular waves carry one: Elites (gold-outlined, tougher, worth double), Glints Only (no `!` markers), Low Gravity, or Blackout (street lights off).
@@ -175,6 +175,7 @@ Plain JavaScript, loaded as classic scripts so the game runs from `file://`.
 | `js/render.js` | Frame composition, lighting, weather, HUD |
 | `js/ui.js` | Menus, results screen and settings panel |
 | `js/main.js` | Game state, fixed 120 Hz simulation, camera, cutscene and bullet-time state, main loop |
+| `docs/tutorial-text.md` | Hint and prompt text taken out of the game, kept for the tutorial |
 
 The game renders at 480×270 and CSS scales it up with nearest-neighbour filtering. Characters are drawn each frame as skeletons of pixel lines into a scratch canvas, then composited with a 1 px outline. The rival reuses the player's pose and drawing code with its own palette (`pal`), weapon (`drawKatana` override), extra parts (`drawExtras`) and action poses (`customPose`); a future playable character can plug in the same way.
 

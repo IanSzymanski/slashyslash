@@ -202,8 +202,6 @@ kbd {
   padding: 0.15em 0.45em; white-space: nowrap;
 }
 table.keys td:last-child { text-align: right; }
-.tips { color: var(--muted); padding-left: 1.1em; line-height: 1.12; display: grid; gap: 0.45em; margin: 1em 0 0; }
-.tips b { color: #ffd040; }
 
 @media (prefers-reduced-motion: reduce) {
   button, input.switch::after { transition: none; }

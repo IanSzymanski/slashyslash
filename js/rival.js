@@ -126,13 +126,13 @@ class Rival extends Enemy {
     Game.slowmo(0.25, 0.55, true);
     Game.shake(0.6);
     Game.hitstop(0.1);
-    Game.announce('SHIELD DOWN', 'STRIKE NOW', '#4af0ff', 1.6);
+    Game.announce('SHIELD DOWN', null, '#4af0ff', 1.6);
   }
   restoreShield() {
     this.shield = true; this.cracks = 0;
     FX.ring(this.x, this.cy, 30, 6, 0.4, { c: '#4af0ff', core: '#ffffff', w: 1 });
     Sound.play('shieldUp');
-    Game.announce('SHIELD RESTORED', 'TETHER ITS GRENADE, KICK IT BACK', '#4af0ff', 1.3, true);
+    Game.announce('SHIELD RESTORED', null, '#4af0ff', 1.3, true);
   }
   pulseHit() {
     if (this.dying || this.transT > 0) return;
@@ -678,10 +678,7 @@ class Rival extends Enemy {
   // From here it fights. quick: the short beam drop (training, duel retries); otherwise the cutscene showed the title.
   arrive(quick) {
     this.spawning = false;
-    if (!this.duel && !this.trainP2) {
-      if (quick) Game.announce(this.name, 'TETHER ITS GRENADE, KICK IT BACK', '#4af0ff', 2.6);
-      else Game.announce('TETHER ITS GRENADE', 'THEN KICK IT BACK INTO AEGIS', '#4af0ff', 2.6, true);
-    }
+    if (quick && !this.duel && !this.trainP2) Game.announce(this.name, null, '#4af0ff', 2.6);
     this.act = { kind: 'intro', t: quick ? 0 : 0.6 };
   }
   updateIntro(dt) {
@@ -1094,7 +1091,6 @@ class Rival extends Enemy {
       ctx.fillStyle = '#4af0ff';
       pring(ctx, x, y - 11, 14 + Math.sin(this.t * 14) * 1.5, 1.3, 1);
       if (((this.t * 16) | 0) % 2) { ctx.fillStyle = '#ffffff'; pline(ctx, x + this.facing * 4, y - 16, x + this.facing * 16, y - 19, 1); }
-      if (((this.t * 6) | 0) % 2) drawText(ctx, 'GUARD - BAIT IT', x, y - 38, { color: '#4af0ff', align: 'center', outline: '#0b0910' });
     }
     if (a && a.kind === 'gun' && a.t < this.tele(0.45)) {
       const [gx, gy] = this.gunPos();
@@ -1195,10 +1191,7 @@ class PulseGrenade {
     this.fuse = Math.max(this.fuse, 2);
   }
   reflect() { this.explode({ blocked: true }); }
-  onSlash() {
-    Game.announce('TETHER IT FIRST', 'TETHER THE GRENADE, THEN KICK IT BACK', '#4af0ff', 1.8, true);
-    this.explode();
-  }
+  onSlash() { this.explode(); }
   update(dt) {
     this.t += dt;
     if (this.state !== 'caught') this.fuse -= dt;

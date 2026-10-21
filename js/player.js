@@ -123,7 +123,7 @@ class Player {
     }
     if (this.ultCharge >= 1 && !this.ultReadyPlayed) {
       this.ultReadyPlayed = true; Sound.play('ultReady');
-      Game.announce('ULTIMATE READY', 'HOLD ' + hudKey('ultimate'), '#ff3a52', 1.4, true);
+      Game.announce('ULTIMATE READY', null, '#ff3a52', 1.4, true);
     }
 
     if (this.dead) { this.updateDead(dt); return; }
@@ -1209,7 +1209,6 @@ class Player {
     FX.ring(g.x, g.y, 3, 26, 0.25, { c: '#ffd070', core: '#ffffff', w: 2 });
     FX.ring(g.x, g.y, 2, 12, 0.16, { c: '#ffffff', core: '#ffd070', w: 1 });
     FX.sparks(g.x, g.y, 24, ang, 0.9, 120, 380, { c0: '#ffffff', c1: '#ffe080', c2: '#ff5a3a' });
-    FX.text('REBOUND', g.x, g.y - 16, { c: '#ffd070', always: true, dur: 0.8, vy: -24 });
     FX.flash('#ffffff', 0.22);
     Sound.play('kick');
     Sound.play('rebound');

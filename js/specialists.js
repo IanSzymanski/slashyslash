@@ -13,13 +13,6 @@ Object.assign(ENEMY_DEFS, {
 });
 Object.assign(ENEMY_BASE_STATE, { shielder: 'chase', crawler: 'crawl', grenadier: 'move', sniper: 'perch' });
 
-// Shown the first time each type appears in a run.
-const ENEMY_HINTS = {
-  shielder: ['SHIELD SCRAPPER', 'PARRY ITS BASH, HEAVY-ATTACK THE SHIELD, OR GET BEHIND IT'],
-  crawler: ['ARMOURED CRAWLER', 'SLASHES BOUNCE OFF. PLUNGE ONTO IT OR GROUND-CUT IT'],
-  grenadier: ['GRENADIER', 'TETHER ITS GRENADE IN FLIGHT, THEN KICK IT BACK'],
-  sniper: ['ROOFTOP SNIPER', 'HOLD THE TETHER ON IT TO ZIP UP TO ITS PERCH'],
-};
 // Hits that ignore the shielder's shield and crack the crawler's armour.
 const ARMOR_BREAKERS = new Set(['plunge', 'groundcut', 'rock', 'barrel', 'saw']);
 const SHIELD_BYPASS = new Set(['plunge', 'chain', 'barrel', 'saw']);
