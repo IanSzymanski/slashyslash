@@ -497,6 +497,19 @@ const Sound = (() => {
       noise({ dur: 0.25, vol: 0.3, f0: 4000, f1: 1500, q: 2 });
       tone({ type: 'sine', f0: 260, f1: 90, dur: 0.3, vol: 0.35 });
     },
+    // red flash: a low hit and a sour stab, then a rising tone that peaks where the dash belongs
+    peril(p) {
+      const d = p.dur || 0.6;
+      tone({ type: 'sawtooth', f0: 130, f1: 48, dur: 0.4, vol: 0.2 });
+      for (const f of [1480, 2093]) tone({ type: 'square', f0: f, f1: f * 0.97, dur: 0.16, vol: 0.035, rev: 0.4 });
+      noise({ dur: 0.2, vol: 0.25, f0: 2500, f1: 600, q: 1.5 });
+      tone({ type: 'sawtooth', f0: 180, f1: 720, dur: d, vol: 0.04, a: 0.02, slide: d });
+      tone({ type: 'sine', f0: 1975, dur: 0.12, vol: 0.06, delay: d, rev: 0.4 });
+    },
+    perilDodge() {
+      noise({ dur: 0.22, vol: 0.3, f0: 3200, f1: 700, q: 1.2 });
+      tone({ type: 'sine', f0: 1320, f1: 2640, dur: 0.22, vol: 0.06, rev: 0.5 });
+    },
     // the riposte is coming: a rising tone that peaks where the parry belongs
     riposteCue(p) {
       const d = p.dur || 0.45;

@@ -155,22 +155,23 @@ const Render = {
     if (B.sub && bt > 0.55) drawText(ctx, B.sub, cxm, y + 45, { align: 'center', color: '#e8d8e0', outline: '#0b0910' });
   },
   drawBulletTime(ctx, cx, cy, k, t) {
-    if (Game.btKind === 'riposte' || Game.btKind === 'clash') { this.drawParryCue(ctx, cx, cy, k, t); return; }
+    if (Game.btKind === 'riposte' || Game.btKind === 'clash' || Game.btKind === 'peril') { this.drawParryCue(ctx, cx, cy, k, t); return; }
     this.drawReboundCue(ctx, cx, cy, k, t);
   },
   // The rival's tell in bullet time. Clash: it glows cyan (guarding). Riposte: it glows gold, and a ring
-  // closes on you; parry as the ring meets the inner circle.
+  // closes on you; parry as the ring meets the inner circle. Red flash: it glows red, a spiked ring closes
+  // and chevrons point out of it; dash as the ring closes.
   drawParryCue(ctx, cx, cy, k, t) {
     const r = Game.btOwner, p = Game.player;
     if (!r || r.dead || !p || p.dead) return;
-    const riposte = Game.btKind === 'riposte', col = riposte ? '#ffd070' : '#4af0ff';
-    if (r.spriteCopy) Sprite.outlined(ctx, r.spriteCopy, r.x - cx, r.y - cy, col, { glow: 0.45 * k });
-    if (!riposte) return;
+    const kind = Game.btKind, peril = kind === 'peril', col = peril ? PERIL_RED : kind === 'riposte' ? '#ffd070' : '#4af0ff';
+    if (r.spriteCopy && !(r.perilFlash > 0)) Sprite.outlined(ctx, r.spriteCopy, r.x - cx, r.y - cy, col, { glow: 0.45 * k });
+    if (kind === 'clash') return;
     const [pcx, pcy] = p.chest(), px = pcx - cx, py = pcy - cy;
-    const q = r.riposteCue ? r.riposteCue() : 0;
+    const q = r.cueProgress ? r.cueProgress() : 0;
     // speed lines converging on you, where the riposte will land
     ctx.globalAlpha = 0.3 * k;
-    ctx.fillStyle = '#fff4d0';
+    ctx.fillStyle = peril ? '#ffd0d4' : '#fff4d0';
     for (let i = 0; i < 16; i++) {
       const a = (i / 16) * TAU + Math.sin(i * 5.1) * 0.2, r0 = 40 + ((i * 29 + ((t * 260) | 0)) % 80), r1 = r0 + 22 + (i % 3) * 8;
       pline(ctx, px + Math.cos(a) * r0, py + Math.sin(a) * r0, px + Math.cos(a) * r1, py + Math.sin(a) * r1, 1);
@@ -178,10 +179,26 @@ const Render = {
     ctx.globalAlpha = 1;
     // its path to you
     const [rcx, rcy] = r.chest(), rx = rcx - cx, ry = rcy - cy, L = Math.hypot(px - rx, py - ry) || 1;
-    ctx.fillStyle = '#ffd070';
+    ctx.fillStyle = col;
     for (let d = 10; d < L - 12; d += 5) ctx.fillRect(Math.round(rx + ((px - rx) * d) / L), Math.round(ry + ((py - ry) * d) / L), 1, 1);
-    // closing ring: parry when it meets the inner circle
     const now = q >= 0.94, rr = lerp(46, 10, easeInQuad(q));
+    if (peril) {
+      // spiked ring closing in, and chevrons pointing out either side: get out, don't parry
+      ctx.fillStyle = '#0b0910'; pring(ctx, px, py, rr, 1, 3);
+      ctx.fillStyle = now ? '#ffffff' : PERIL_RED; pring(ctx, px, py, rr, 1, 2);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * TAU + t * 1.5;
+        pline(ctx, px + Math.cos(a) * (rr + 4), py + Math.sin(a) * (rr + 4), px + Math.cos(a) * Math.max(4, rr - 5), py + Math.sin(a) * Math.max(4, rr - 5), 1);
+      }
+      const push = now ? 3 : ((t * 6) | 0) % 2;
+      ctx.fillStyle = now ? PERIL_RED : '#ffffff';
+      for (const d of [-1, 1]) for (let c = 0; c < 2; c++) {
+        const bx = px + d * (13 + push + c * 4);
+        pline(ctx, bx - d * 2, py - 3, bx, py, 1); pline(ctx, bx, py, bx - d * 2, py + 3, 1);
+      }
+      return;
+    }
+    // closing ring: parry when it meets the inner circle
     ctx.fillStyle = '#0b0910'; pring(ctx, px, py, rr, 1, 3);
     ctx.fillStyle = now ? '#ffffff' : '#ffd070'; pring(ctx, px, py, rr, 1, 2);
     ctx.fillStyle = now ? '#ffd070' : '#ffffff';
@@ -469,7 +486,7 @@ const Render = {
       ctx.fillStyle = '#4af0ff';
       for (let i = 0; i < w; i += 2) if (((i + ((t * 20) | 0)) >> 1) % 3) ctx.fillRect(x + i, y, 1, 4);
       ctx.globalAlpha = 1;
-      drawText(ctx, b.cracks ? `SHIELD CRACKED ${b.cracks}/3` : 'SHIELDED', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
+      drawText(ctx, b.cracks ? `SHIELD CRACKED ${b.cracks}/${SHIELD_CRACKS}` : 'SHIELDED', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
     } else if (b.stunT > 0) drawText(ctx, 'STUNNED', VIEW_W / 2, y + 7, { align: 'center', color: '#ffffff' });
     else if (b.phase !== 2) drawText(ctx, 'SHIELD BACK IN ' + Math.ceil(b.shieldDownT), VIEW_W / 2, y + 7, { align: 'center', color: '#7a9aa6' });
   },

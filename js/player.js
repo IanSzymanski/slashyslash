@@ -7,7 +7,7 @@ const PC = {
   GRAV: 960, MAX_FALL: 430, JUMP: 300, DJUMP: 282, JUMP_CUT: 0.45, COYOTE: 0.09, JUMP_BUF: 0.13,
   WALL_SLIDE: 70, WALL_JUMP_X: 180, WALL_JUMP_Y: 290,
   CROUCH_SPEED: 55, SLIDE_MIN: 100, SLIDE_BOOST: 255, SLIDE_FRICTION: 230, BULLET: 375,
-  DASH_SPEED: 480, DASH_TIME: 0.14, DASH_IFRAMES: 0.2, DASH_RECHARGE: 1.0, DASH_CHARGES: 2,
+  DASH_SPEED: 480, DASH_TIME: 0.14, DASH_IFRAMES: 0.2, PERIL_DODGE: 0.32, DASH_RECHARGE: 1.0, DASH_CHARGES: 2,
   TETHER_RANGE: 230, TETHER_COST: 15, TETHER_SPEED: 1150, ZIP_SPEED: 480,
   MAX_HP: 100, MAX_SHIELD: 100, SHIELD_DELAY: 3.0, SHIELD_RATE: 38,
   PARRY_COST: 15, PARRY_CD: 0.4, PARRY_CD_HIT: 0.25, STANCE_MAX: 0.9, DROP_HOLD: 0.16, DASH_ATTACK_WINDOW: 0.14,
@@ -56,7 +56,7 @@ class Player {
     this.facing = 1; this.onGround = false; this.col = null; this.dropThrough = false;
     this.hp = PC.MAX_HP; this.shield = PC.MAX_SHIELD; this.shieldDelay = 0; this.shieldFlash = 0; this.regenOn = false;
     this.dashCharges = PC.DASH_CHARGES; this.dashRecharge = 0; this.dashT = 0; this.dashVX = 0; this.dashVY = 0;
-    this.iframes = 0; this.hurtT = 0;
+    this.iframes = 0; this.hurtT = 0; this.perilWinT = 0;
     this.coyote = 0; this.jumpBuf = 0; this.airJumps = 1; this.jumpCuttable = false;
     this.crouching = false; this.sliding = false; this.slideT = 0; this.dropHoldT = 0; this.dropT = 0; this.crouchTapT = -1;
     this.dashBuf = 0; this.dashHold = 0; this.parryBuf = 0; this.parrySpam = 0; this.shieldWasFull = true; this.shieldFullFlash = 0;
@@ -100,7 +100,7 @@ class Player {
     this.aimAngle = Math.atan2(m.y - cy, m.x - cx);
 
     const dec = (k) => { if (this[k] > 0) this[k] = Math.max(0, this[k] - dt); };
-    for (const k of ['iframes', 'hurtT', 'coyote', 'jumpBuf', 'attackCD', 'landLag', 'postPose', 'parryCD', 'parryFlash', 'dashEndT', 'shieldOffT', 'dropT', 'wallJumpLock', 'landSquash', 'shieldFlash', 'spinT', 'bulletT', 'blinkT', 'parryBuf', 'dashHold', 'shieldFullFlash', 'utilT', 'utilFlash']) dec(k);
+    for (const k of ['iframes', 'hurtT', 'coyote', 'jumpBuf', 'attackCD', 'landLag', 'postPose', 'parryCD', 'parryFlash', 'dashEndT', 'shieldOffT', 'dropT', 'wallJumpLock', 'landSquash', 'shieldFlash', 'spinT', 'bulletT', 'blinkT', 'parryBuf', 'dashHold', 'shieldFullFlash', 'utilT', 'utilFlash', 'perilWinT']) dec(k);
     this.parrySpam = Math.max(0, this.parrySpam - dt / PC.PARRY_SPAM_DECAY);
     if (this.onGround) this.hoverAvail = true;
     if (this.dropT <= 0) this.dropThrough = false;
@@ -344,7 +344,8 @@ class Player {
     if (this.sliding || this.crouching) { this.sliding = false; this.crouching = false; if (!this.setHeight(PC.H)) this.setHeight(PC.SLIDE_H); }
     const spd = this.ult ? PC.DASH_SPEED * 1.25 : PC.DASH_SPEED;
     this.dashT = PC.DASH_TIME; this.dashVX = dx * spd; this.dashVY = dy * spd * 0.85; this.dashHits = new Set();
-    this.iframes = Math.max(this.iframes, PC.DASH_IFRAMES);
+    // against red-flash attacks a dash protects a little longer than its i-frames
+    this.iframes = Math.max(this.iframes, PC.DASH_IFRAMES); this.perilWinT = PC.PERIL_DODGE;
     if (this.dashCharges === PC.DASH_CHARGES) this.dashRecharge = 0;
     this.dashCharges--;
     if (dx !== 0) this.facing = sign(dx);
@@ -852,7 +853,10 @@ class Player {
     const [cx, cy] = this.chest();
     for (const e of Game.enemies) {
       if (e.dead || e.spawning || I.hit.has(e)) continue;
-      if (segRect(I.sx, I.sy, cx, cy, 14, e.x - e.w / 2, e.y - e.h, e.w, e.h)) { I.hit.add(e); this.iaidoMark(e); }
+      if (segRect(I.sx, I.sy, cx, cy, 14, e.x - e.w / 2, e.y - e.h, e.w, e.h)) {
+        if (e.deflectIaido && e.deflectIaido(this)) { for (const o of I.hit) o.cutMark = 0; return; }
+        I.hit.add(e); this.iaidoMark(e);
+      }
     }
     if (I.t >= I.dur) this.finishIaido();
   }
@@ -865,7 +869,10 @@ class Player {
     FX.swoosh({ x: cx, y: cy, r: cfg.arcR, span: cfg.span, ang: I.ang, dir, sweep: 0.08, dur: cfg.empowered ? 0.38 : 0.26, thick: cfg.thick, pal: cfg.empowered ? PALETTES.gold : PALETTES.red, trail: 1 });
     for (const e of Game.enemies) {
       if (e.dead || e.spawning || I.hit.has(e)) continue;
-      if (sectorRect(cx, cy, cfg.arcR, I.ang, cfg.span, e.x - e.w / 2, e.y - e.h, e.w, e.h)) { I.hit.add(e); this.iaidoMark(e); }
+      if (sectorRect(cx, cy, cfg.arcR, I.ang, cfg.span, e.x - e.w / 2, e.y - e.h, e.w, e.h)) {
+        if (e.deflectIaido && e.deflectIaido(this)) { for (const o of I.hit) o.cutMark = 0; return; }
+        I.hit.add(e); this.iaidoMark(e);
+      }
     }
     for (const pr of Game.props) {
       if (!pr.dead && sectorRect(cx, cy, cfg.arcR, I.ang, cfg.span, pr.x - pr.w / 2, pr.y - pr.h, pr.w, pr.h)) pr.hit(60, { kx: Math.cos(I.ang) * 260, ky: -150, heavy: true });
@@ -1277,7 +1284,9 @@ class Player {
   takeHit(h) {
     if (this.dead || Game.cineActive()) return 'ignored';
     if (this.ult) return 'immune';
-    if (this.parryActive()) { this.doParry(h); return 'parried'; }
+    // red-flash attacks go straight through a parry; a dash slips them
+    if (h.unparryable && this.perilWinT > 0) { this.perilDodge(h); return 'dodged'; }
+    if (this.parryActive() && !h.unparryable) { this.doParry(h); return 'parried'; }
     if (this.iframes > 0 || this.iaido) return 'ignored';
     let dmg = h.dmg * (Game.has('glass') ? 1.25 : 1);
     if (S.gameplay.invincible) dmg = 0;
@@ -1320,6 +1329,16 @@ class Player {
     Game.stats.damageTaken += h.dmg;
     if (this.hp <= 0) this.die();
     return 'hit';
+  }
+  perilDodge(h) {
+    const [cx, cy] = this.chest();
+    this.makeGhost('#ffffff', 0.5, 0.8);
+    FX.ring(cx, cy, 4, 30, 0.3, { c: '#ffffff', core: '#ff2a3a', w: 2 });
+    FX.sparks(cx, cy, 14, Math.atan2(cy - (h.y || cy), cx - (h.x || cx)), 1.4, 60, 220, { c0: '#ffffff', c1: '#ff8a9a', c2: '#781e2a' });
+    FX.light(cx, cy, 70, '#ffffff', 1, 0.3);
+    Sound.play('perilDodge');
+    Game.slowmo(0.3, 0.4, true);
+    this.iframes = Math.max(this.iframes, 0.3);
   }
   onShieldFull() {
     if (this.shieldWasFull) return;

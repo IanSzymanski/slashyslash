@@ -31,6 +31,10 @@ const BOLT_CYAN = { outer: '#2ab8d8', core: '#e0ffff', light: '#4af0ff' };
 const GRENADE_G = 600;
 // time scale of the bullet time that plays while its riposte winds up
 const RIPOSTE_BT_SCALE = 0.7;
+// returned bolts it takes to break the phase-1 shield
+const SHIELD_CRACKS = 8;
+// the red flash: an attack no parry can stop, only a dash
+const PERIL_RED = '#ff2a3a';
 
 // Greatblade moves. wind = telegraph before the swing; swing = active time.
 const RIVAL_MOVES = {
@@ -39,7 +43,8 @@ const RIVAL_MOVES = {
   rise: { wind: 0.32, swing: 0.22, r: 48, span: 2.8, dmg: 16, lunge: 90, rising: true },
   thrust: { wind: 0.36, swing: 0.2, r: 0, span: 0.01, dmg: 18, thrust: true },
   spin: { wind: 0.42, swing: 0.3, r: 44, span: TAU - 0.02, dmg: 16, spin: true },
-  riposte: { wind: 0.34, swing: 0.2, r: 54, span: 3.6, dmg: 28, lunge: 240 },
+  riposte: { wind: 0.34, swing: 0.2, r: 54, span: 3.6, dmg: 28, close: true },
+  peril: { wind: 0.45, swing: 0.22, r: 60, span: 3.8, dmg: 30, close: true, unparryable: true },
 };
 const RIVAL_COMBOS = [
   ['slash', 'slash', 'cleave'], ['thrust', 'slash', 'rise'], ['slash', 'spin'],
@@ -95,13 +100,13 @@ class Rival extends Enemy {
     return false;
   }
   shieldHit(o) {
-    // bolts sent back into the shield crack it; three cracks break it like a rebounded grenade
+    // bolts sent back into the shield crack it; enough cracks break it like a rebounded grenade
     if (o.cause === 'reflect' && this.phase === 1 && !this.dying) {
       this.cracks++;
       FX.ring(this.x, this.cy, 4, 18, 0.2, { c: '#ffffff', core: '#4af0ff', w: 1 });
-      FX.text('CRACK ' + this.cracks + '/3', this.x, this.y - 40, { c: '#ffffff', always: true, dur: 0.8, vy: -22 });
+      FX.text('CRACK ' + this.cracks + '/' + SHIELD_CRACKS, this.x, this.y - 40, { c: '#ffffff', always: true, dur: 0.8, vy: -22 });
       Sound.play('reflect');
-      if (this.cracks >= 3) { this.breakShield(); return; }
+      if (this.cracks >= SHIELD_CRACKS) { this.breakShield(); return; }
     }
     const p = Game.player, a = o.angle !== undefined ? o.angle : Math.atan2(this.cy - p.cy, this.x - p.x);
     const hx = this.x - Math.cos(a) * 14, hy = this.cy - Math.sin(a) * 16;
@@ -149,6 +154,7 @@ class Rival extends Enemy {
     if (this.dying || dur < 1.2) return;
     if (this.phase === 2) {
       if (this.act && this.act.move === 'riposte') {
+        if (this.rollReparry()) { this.raiseGuard(1.6, 'reparry'); this.vx += kx / 4; return; }
         this.stunFor(3.2);
         this.vx = kx / 2; this.vy = -120;
         FX.ring(this.x, this.cy, 4, 40, 0.35, { c: '#ffd070', core: '#ffffff', w: 2 });
@@ -165,8 +171,15 @@ class Rival extends Enemy {
     this.act = null; this.attack = null; this.hover = false; this.beam = null; this.lungeT = 0;
     this.vx += kx / 3;
   }
+  // After you parry its riposte it usually staggers; sometimes it recovers into a guard that parries your counter back.
+  rollReparry() {
+    const k = clamp(1 - this.hp / (this.p2Hp || this.maxHp), 0, 1);
+    this.reparried = chance(this.reparried ? 0.15 : lerp(0.3, 0.55, k));
+    return this.reparried;
+  }
   // Phase 2 guard: anything swung into it is parried and answered with a riposte.
-  // why: 'clash' (you parried its swing), 'read' (it saw your attack coming), 'stance' (it waits for you to commit).
+  // why: 'clash' (you parried its swing), 'read' (it saw your attack coming), 'stance' (it waits for you to commit),
+  // 'reparry' (it caught your parry of its riposte; what it parries next gets the red flash instead).
   raiseGuard(dur, why) {
     this.attack = null; this.lungeT = 0;
     this.act = { kind: 'guard', t: 0, why };
@@ -176,15 +189,16 @@ class Rival extends Enemy {
     FX.ring(cx, cy, 22, 12, 0.25, { c: '#4af0ff', core: '#ffffff', w: 1 });
     FX.light(cx, cy, 60, '#4af0ff', 0.9, 0.3);
     Sound.play('guardUp');
-    if (why === 'clash') { Sound.play('clash'); Game.bulletTime(0.3, { kind: 'clash', scale: 0.3, owner: this }); }
+    if (why === 'clash' || why === 'reparry') { Sound.play('clash'); Game.bulletTime(0.3, { kind: 'clash', scale: 0.3, owner: this }); }
   }
-  // 0..1 through the riposte wind-up, timed so the cue ring closes just before the blade lands.
-  riposteCue() {
+  // 0..1 through the riposte or red-flash wind-up, timed so the cue ring closes just before the blade lands.
+  cueProgress() {
     const a = this.act;
-    if (!a || a.move !== 'riposte' || a.phase !== 'wind') return 1;
+    if (!a || !a.m || !a.m.close || a.phase !== 'wind') return 1;
     return clamp(a.t / Math.max(0.05, this.tele(a.m.wind) - 0.04), 0, 1);
   }
   parryPlayer(o) {
+    const reparry = !!(this.act && this.act.why === 'reparry');
     this.guardT = 0; this.parryInvulnT = 0.45;
     const p = Game.player;
     this.facing = sign(p.x - this.x) || this.facing;
@@ -195,11 +209,44 @@ class Rival extends Enemy {
     Game.hitstop(0.06);
     Game.shake(0.2);
     if (!p.dead) { p.vx = sign(p.x - this.x || 1) * 170; p.vy = Math.min(p.vy, -80); }
+    if (reparry) { this.startPeril(); return; }
     this.startMove('riposte', null);
     // the world drains to grey, it glows gold, and a ring closes on you: parry as the ring closes
     const real = this.tele(RIVAL_MOVES.riposte.wind) / RIPOSTE_BT_SCALE;
     Game.bulletTime(real + 0.2, { kind: 'riposte', scale: RIPOSTE_BT_SCALE, owner: this });
     Sound.play('riposteCue', { dur: real + 0.06 });
+  }
+  // Red flash: it flares red and winds up a blow that goes straight through a parry. Dash through it.
+  startPeril() {
+    this.startMove('peril', null);
+    const [cx, cy] = this.chest();
+    this.perilFlash = 0.16;
+    FX.glint(cx, cy - 6, { c: PERIL_RED, size: 2.4, dur: 0.4, follow: () => [this.x, this.y - 18] });
+    FX.ring(cx, cy, 4, 54, 0.35, { c: PERIL_RED, core: '#ffffff', w: 2 });
+    FX.light(cx, cy, 120, PERIL_RED, 1, 0.5);
+    Game.shake(0.25);
+    const real = this.tele(RIVAL_MOVES.peril.wind) / RIPOSTE_BT_SCALE;
+    Game.bulletTime(real + 0.2, { kind: 'peril', scale: RIPOSTE_BT_SCALE, owner: this });
+    Sound.play('peril', { dur: real + 0.06 });
+  }
+  // The reparry guard meets your counter-slash at contact: the draw stops dead and you bounce off.
+  deflectIaido(p) {
+    const a = this.act;
+    if (!a || a.kind !== 'guard' || a.why !== 'reparry' || this.guardT <= 0 || p.dead) return false;
+    p.iaido = null; p.attack = null; p.postPose = 0; p.iframes = 0;
+    p.vx = (sign(p.x - this.x) || -this.facing) * 220; p.vy = -120;
+    FX.sparks((p.x + this.x) / 2, this.y - 12, 26, 0, TAU, 80, 320, { c0: '#ffffff', c1: '#ffe080', c2: '#145e6a' });
+    this.parryPlayer({ cause: 'iaido' });
+    return true;
+  }
+  // It committed to the red flash and hit nothing: wide open.
+  whiff() {
+    this.stunFor(2.6);
+    this.vx = this.facing * 140;
+    FX.ring(this.x, this.cy, 4, 40, 0.35, { c: '#ffd070', core: '#ffffff', w: 2 });
+    FX.sparks(this.x + this.facing * 10, this.cy, 14, this.facing > 0 ? 0 : Math.PI, 1.2, 40, 160, { c0: '#ffffff', c1: '#ff8a9a', c2: '#781e2a' });
+    Sound.play('bossShieldBreak');
+    Game.slowmo(0.25, 0.5, true);
   }
   windingUp() {
     const a = this.act;
@@ -239,9 +286,10 @@ class Rival extends Enemy {
     for (const k in this.cds) this.cds[k] -= dt * (k === 'dash' || k === 'zip' ? 1 : S.enemies.aggression);
     for (const k of ['flinchT', 'hurtT', 'spinT', 'postPose', 'dodgeT', 'jumpCD', 'deflectT', 'guardT', 'parryInvulnT', 'transT']) if (this[k] > 0) this[k] = Math.max(0, this[k] - dt);
     if (this.dashCharges < 2) { this.dashRecharge += dt; if (this.dashRecharge >= 1.2) { this.dashCharges++; this.dashRecharge = 0; } }
-    // the riposte's bullet time lasts exactly as long as its wind-up
+    // the riposte's and red flash's bullet time lasts exactly as long as the wind-up
     const a0 = this.act;
-    if (Game.btOwner === this && Game.btKind === 'riposte' && !(a0 && a0.move === 'riposte' && a0.phase === 'wind')) Game.endBulletTime();
+    if (Game.btOwner === this && (Game.btKind === 'riposte' || Game.btKind === 'peril') && !(a0 && a0.move === Game.btKind && a0.phase === 'wind')) Game.endBulletTime();
+    if (this.perilFlash > 0) this.perilFlash = Math.max(0, this.perilFlash - dt);
     if (this.dropThrough) { this.dropT -= dt; if (this.dropT <= 0) this.dropThrough = false; }
     if (this.grenade && this.grenade.dead) { this.grenade = null; this.cds.grenade = rand(6, 9); }
     // the beam hum follows the beam, so it can never outlive it
@@ -477,27 +525,27 @@ class Rival extends Enemy {
       const wind = this.tele(m.wind);
       if (!a.glinted && a.t >= Math.max(0, wind - GLINT_LEAD)) {
         a.glinted = true;
-        const col = a.move === 'riposte' ? '#ffd070' : this.phase === 2 ? '#ff9aaa' : '#9af4ff';
+        const col = m.unparryable ? PERIL_RED : a.move === 'riposte' ? '#ffd070' : this.phase === 2 ? '#ff9aaa' : '#9af4ff';
         const at = this._bladeGlint || this.chest();
         FX.glint(at[0], at[1], { c: col, size: 1.25, follow: () => this._bladeGlint });
         Sound.play('glint');
       }
       if (a.t >= wind) {
         a.phase = 'swing'; a.t = 0; a.hit = false; a.quaked = false;
-        if (a.move === 'riposte' && Game.btOwner === this) Game.endBulletTime();
+        if (m.close && Game.btOwner === this) Game.endBulletTime();
         let ang = this.aimAngle, dir = this.facing;
         if (m.spin) ang = -Math.PI / 2;
         if (m.rising) dir = -this.facing;
         if (m.thrust) { ang = this.facing > 0 ? 0 : Math.PI; this.lungeT = 0.16; this.lungeV = this.facing * 560; }
-        else if (a.move === 'riposte') {
-          // the riposte closes whatever gap your counter opened
+        else if (m.close) {
+          // the riposte and red flash close whatever gap you opened
           const gap = Math.max(0, Math.abs(p.x - this.x) - 18);
           this.lungeT = 0.14; this.lungeV = this.facing * Math.min(2200, gap / 0.14);
         } else if (m.lunge) this.vx = this.facing * m.lunge;
         if (m.rising) this.vy = -240;
         this.attack = { stage: 3, t: 0, sweep: m.swing * 0.6, dur: m.swing, dir, span: m.span, ang };
         if (!m.thrust) {
-          FX.swoosh({ x: cx, y: cy, follow: this, ox: 0, oy: -12, r: m.r, span: m.span, ang, dir, sweep: m.swing * 0.6, dur: m.swing + 0.12, thick: m.r > 50 ? 16 : 12, pal: a.move === 'riposte' ? PALETTES.gold : PALETTES.cyan, trail: 0.95 });
+          FX.swoosh({ x: cx, y: cy, follow: this, ox: 0, oy: -12, r: m.r, span: m.span, ang, dir, sweep: m.swing * 0.6, dur: m.swing + 0.12, thick: m.r > 50 ? 16 : 12, pal: m.unparryable ? PALETTES.red : a.move === 'riposte' ? PALETTES.gold : PALETTES.cyan, trail: 0.95 });
         } else FX.slashLine(cx, cy, cx + this.facing * 70, cy, { w: 3, dur: 0.25, pal: PALETTES.cyan });
         Sound.play('swing', { stage: m.r > 50 || m.spin ? 3 : 1 });
       }
@@ -510,7 +558,7 @@ class Rival extends Enemy {
       else if (a.t > 0.02 && a.t < m.swing * 0.8) hit = sectorRect(cx, cy, m.r + 2, this.attack.ang, m.span, p.x - p.w / 2, p.y - p.h, p.w, p.h);
       if (hit) {
         a.hit = true;
-        p.takeHit({ dmg: m.dmg * this.dmgMul, x: this.x, y: cy, kind: 'melee', source: this, knock: m.quake ? 280 : m.rising ? 160 : 220 });
+        a.landed = p.takeHit({ dmg: m.dmg * this.dmgMul, x: this.x, y: cy, kind: 'melee', source: this, knock: m.quake ? 280 : m.rising ? 160 : 220, unparryable: m.unparryable }) === 'hit';
         if (m.rising && !p.dead && p.hurtT > 0) p.vy = -300;
         if (this.act !== a) return { mx: 0 };
       }
@@ -527,6 +575,7 @@ class Rival extends Enemy {
     }
     if (a.t >= m.swing) {
       this.attack = null;
+      if (m.unparryable && !a.landed) { this.whiff(); return { mx: 0 }; }
       const c = a.combo;
       if (c && c.i + 1 < c.list.length) { c.i++; this.startMove(c.list[c.i], c); }
       else {
@@ -1070,7 +1119,7 @@ class Rival extends Enemy {
       ctx.globalAlpha = 1;
       ctx.fillStyle = '#ffffff';
       for (let i = 0; i < this.cracks; i++) {
-        const a0 = -2.2 + i * 1.6;
+        const a0 = -2.2 + i * (TAU / SHIELD_CRACKS);
         pline(ctx, x + Math.cos(a0) * 14, cy + Math.sin(a0) * 16, x + Math.cos(a0 + 0.3) * 7, cy + Math.sin(a0 + 0.3) * 8, 1);
         pline(ctx, x + Math.cos(a0 + 0.3) * 7, cy + Math.sin(a0 + 0.3) * 8, x + Math.cos(a0 - 0.2) * 3, cy + Math.sin(a0 - 0.2) * 3, 1);
       }
@@ -1091,6 +1140,10 @@ class Rival extends Enemy {
       ctx.fillStyle = '#4af0ff';
       pring(ctx, x, y - 11, 14 + Math.sin(this.t * 14) * 1.5, 1.3, 1);
       if (((this.t * 16) | 0) % 2) { ctx.fillStyle = '#ffffff'; pline(ctx, x + this.facing * 4, y - 16, x + this.facing * 16, y - 19, 1); }
+    }
+    if (a && a.move === 'peril' && a.phase === 'wind' && this.spriteCopy) {
+      if (this.perilFlash > 0) Sprite.outlined(ctx, this.spriteCopy, x, y, PERIL_RED, { glow: 0.6, fill: ((this.t * 30) | 0) % 2 ? '#ffffff' : PERIL_RED });
+      else if (Game.btOwner !== this) Sprite.outlined(ctx, this.spriteCopy, x, y, PERIL_RED, { glow: 0.35 });
     }
     if (a && a.kind === 'gun' && a.t < this.tele(0.45)) {
       const [gx, gy] = this.gunPos();
@@ -1132,8 +1185,8 @@ class Rival extends Enemy {
       }
     }
     if (this.windingUp() && a.kind !== 'grenade' && ((this.t * 14) | 0) % 2 === 0) {
-      const riposte = a.move === 'riposte';
-      drawText(ctx, riposte ? '!!!' : '!!', x, y - 32, { color: riposte ? '#ffd070' : this.phase === 2 ? '#ff8a9a' : '#4af0ff', align: 'center' });
+      const big = a.move === 'riposte' || a.move === 'peril';
+      drawText(ctx, big ? '!!!' : '!!', x, y - 32, { color: a.move === 'peril' ? PERIL_RED : big ? '#ffd070' : this.phase === 2 ? '#ff8a9a' : '#4af0ff', align: 'center' });
     }
   }
   addLights() {

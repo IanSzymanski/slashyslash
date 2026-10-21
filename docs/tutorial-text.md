@@ -64,6 +64,12 @@ Boss bar under Aegis's health:
 - Phase 2, guarding: `GUARDING - BAIT THE RIPOSTE AND PARRY IT`
 - Phase 2, otherwise: `LIMITERS OFF - PARRY, THEN PARRY ITS RIPOSTE`
 
+## Taught by visuals only (no text yet)
+
+- Red flash (AEGIS-07, phase 2): it flashes red and a spiked red ring closes on you. Parrying does nothing; dash as the ring closes. Dodging it leaves Aegis stunned. Gold ring means parry, red ring means dash.
+- Cyan guard right after you parry its riposte: it will parry your counter-slash and go into the red flash.
+- Aegis's shield now needs 8 returned bolts to break, not the 3 the old text below says.
+
 ## How to Play tips
 
 The list under the controls table on the How to Play screen.
