@@ -4,19 +4,19 @@ Plan for a separate 3D version of SlashySlash: a third-person action game with a
 
 ## Two lanes
 
-- **2D:** everything that exists today: `index.html`, `js/`, `css/`, `tools/`, `README.md`. The 3D work never edits these files, and the 2D game keeps growing on its own schedule.
-- **3D:** everything under `3d/`. It has its own `index.html`, scripts, CSS, vendored Three.js, build script, smoke test, README and saved settings.
+- **2D:** this repo, `IanSzymanski/slashyslash`: `index.html`, `js/`, `css/`, `tools/`, `README.md`. The 3D work never edits these files, and the 2D game keeps growing on its own schedule.
+- **3D:** its own repo, [`IanSzymanski/slashyslash2`](https://github.com/IanSzymanski/slashyslash2), with its own `index.html`, scripts, CSS, vendored Three.js, build script, smoke test, README and saved settings. Paths written `slashyslash2/...` below are in that repo; bare paths are in this one.
 
 Rules that keep them apart:
 
-1. **The 3D lane only adds or changes files under `3d/`.** This plan, in `docs/`, is the one exception.
+1. **The 3D lane never changes this repo**, except this plan.
 2. **Fork, don't share.** 3D starts from copies of the 2D files it can reuse. If the 3D page loaded the 2D files directly, any change made for 3D would edit the 2D game, and a 2D change could break 3D without warning.
-3. **Separate saved data.** 3D uses `slashyslash3d.settings.v1` and `slashyslash3d.save.v1`. Both pages run from the same origin and share browser storage, so with the same keys, rebinding WASD in 3D would rebind the 2D game too.
-4. **Separate build output.** `3d/tools/build.js` writes `3d/dist/slashyslash-3d.html`. The 2D build keeps writing `dist/slashyslash.html`, and the existing `dist/` ignore rule covers both.
-5. **Pull 2D changes into 3D by hand, only when you want them.** `3d/SYNCED_FROM` records the 2D commit the 3D copies last caught up with. `git diff $(cat 3d/SYNCED_FROM)..main -- js/` lists what the 2D game has added since. Port what you want, then update the file.
-6. **Mirror 2D file names where a 3D file plays the same role.** For example, `3d/js/rival.js` ports `js/rival.js`. Each 2D change in that diff then points straight at the 3D file to update.
+3. **Separate saved data.** 3D uses `slashyslash3d.settings.v1` and `slashyslash3d.save.v1`. Both games can run from the same origin (`file://`, or one local server) and share browser storage there, so with the same keys, rebinding WASD in 3D would rebind the 2D game too.
+4. **Separate build output.** `slashyslash2/tools/build.js` writes `slashyslash2/dist/slashyslash-3d.html`. The 2D build keeps writing `dist/slashyslash.html`.
+5. **Pull 2D changes into 3D by hand, only when you want them.** `slashyslash2/SYNCED_FROM` records the 2D commit the 3D copies last caught up with. `node tools/sync-2d.js` in slashyslash2 fetches this repo as the `2d` remote and lists the 2D commits and files changed since then; `--diff` prints the diff, and `--mark` records the new commit once you've ported what you want.
+6. **Mirror 2D file names where a 3D file plays the same role.** For example, `slashyslash2/js/rival.js` ports `js/rival.js`, so each 2D change in that diff points straight at the 3D file to update. The 2D `main.js` is the exception: its game core lives in `slashyslash2/js/core.js`.
 
-Why one directory on `main`, rather than a long-lived branch or a second repo: both games stay playable from one checkout, and the 2D changes are one `git diff` away. A branch would need `main` merged into it regularly, and a second repo makes that diff harder.
+This plan first put the 3D lane in a `3d/` directory on `main`, to keep the 2D diff one command away. It moved to its own repo instead. The sync script keeps the diff to one command: once both repos are fetched, git diffs commits across their unrelated histories.
 
 ## Recommendation
 
@@ -31,7 +31,7 @@ How the 3D lane uses the 2D code (the 2D files themselves don't change):
 
 | | Lines | Share | Files |
 | --- | --- | --- | --- |
-| Copied into `3d/` with small edits | ~2,050 | 23% | util, settings, input, audio, upgrades, waves, ui, the non-camera half of main |
+| Copied into slashyslash2 with small edits | ~2,050 | 23% | util, settings, input, audio, upgrades, waves, ui, the non-camera half of main |
 | Rules and tuning reimplemented in 3D | ~5,100 | 56% | player, enemies, specialists, rival, ultimates, utilities, training |
 | Not used | ~1,900 | 21% | level, render (scene half), fx, sprites, main loop and camera |
 
@@ -63,7 +63,7 @@ Most of the tuning carries over: timings, damage, wind-ups, parry windows, strin
 
 ## Technical foundation
 
-**Three.js as a vendored global.** Three no longer ships a classic-script build (checked on 0.186.1: only `three.module.js` and `three.cjs`), and ES modules don't load from `file://`. So `3d/tools/vendor-three.js` bundles a pinned version once, with esbuild, into `3d/vendor/three.js` as a global `THREE`, importing only the classes the game uses. The file is committed, so the 3D page keeps working from `file://` with classic scripts. Measured cost: 545 KB minified (136 KB gzipped) for a typical subset. For scale, the 2D game's single-file build is 453 KB.
+**Three.js as a vendored global.** Three no longer ships a classic-script build (checked on 0.186.1: only `three.module.js` and `three.cjs`), and ES modules don't load from `file://`. So `slashyslash2/tools/vendor-three.js` bundles a pinned version once, with esbuild, into `slashyslash2/vendor/three.js` as a global `THREE`, importing only the classes the game uses. The file is committed, so the 3D page keeps working from `file://` with classic scripts. Measured cost: 545 KB minified (136 KB gzipped) for a typical subset. For scale, the 2D game's single-file build is 453 KB.
 
 **Units and axes.** 1 unit = 1 m, y up, x along the old street, z for depth. The scale is `PX = 1/11` (the player's 20 px becomes 1.8 m). A helper `to3(x, y)` returns `(x * PX, (GROUND - y) * PX)`, where `GROUND` is the 2D street's ground line. It's used to convert a copy of the 2D street layout and as a starting point for constants. The 2D y axis points down, so every `vy` sign flips. Expect that to be the most common porting bug; port one function at a time and check each `vy`.
 
@@ -81,7 +81,7 @@ The converted constants are only a starting point, because 2D platformer physics
 | Overload radius | 80 px | 7.3 m | |
 | Red flash zone | 300 px | 27 m | |
 
-`3d/tools/feel-check.js` runs the controller headless and prints jump apex, double-jump reach, and dash and slide distance in metres. It fails if a roof tier can't be reached with the intended move. This makes retuning measurable instead of guesswork.
+`slashyslash2/tools/feel-check.js` runs the controller headless and prints jump apex, double-jump reach, and dash and slide distance in metres. It fails if a roof tier can't be reached with the intended move. This makes retuning measurable instead of guesswork.
 
 **Simulation loop.** Keep the 2D game's fixed 120 Hz tick, slow motion, hitstop, cutscene state and bullet time with its four kinds (`rebound`, `clash`, `riposte`, `peril`). Three changes:
 
@@ -91,9 +91,9 @@ The converted constants are only a starting point, because 2D platformer physics
 
 **Collision.** The world is a list of axis-aligned boxes, like the 2D level. The 3D version of `moveBody` works on three axes with the same sub-stepping, plus step-up (cars) and ledge mantle. Raycasts and the camera's sphere sweep test against each box; with about 200 boxes, brute force is fine to start, and a uniform grid can come later.
 
-**Input.** Pointer Lock with `movementX`/`movementY`, sensitivity, invert Y. Default bindings: WASD to move (relative to the camera), `Space` jump, `C`/`Ctrl` crouch and slide, `Shift` dash, `E` parry, `F` utility, left mouse slash (tap light, hold heavy), right mouse tether, `R` ultimate. Lights fire on release and heavies after a 0.15 s hold, as in 2D. These live under the 3D storage key, so they never change the 2D game's bindings. Two browser behaviours to handle:
+**Input.** Pointer Lock with `movementX`/`movementY`, sensitivity, invert Y. Default bindings: WASD to move (relative to the camera), `Space` jump, `C` crouch and slide (not `Ctrl`: Ctrl+W, crouching while moving forward, closes the browser tab and pages can't block it), `Shift` dash, `E` parry, `F` utility, left mouse slash (tap light, hold heavy), right mouse tether, `R` ultimate. Lights fire on release and heavies after a 0.15 s hold, as in 2D. These live under the 3D storage key, so they never change the 2D game's bindings. Two browser behaviours to handle:
 
-- Browsers use `Esc` to exit pointer lock and don't pass the key to the page. Pause on `pointerlockchange` instead of on the key.
+- Browsers use `Esc` to exit pointer lock and don't pass the key to the page. Pause on `pointerlockchange` instead of on the key. `Esc` can't resume either: it doesn't count as a user gesture, so the re-lock is refused.
 - Re-locking needs a click or key press, and Chrome refuses a re-lock for about a second after `Esc`. The Resume button has to cope with that.
 
 **Rendering.** `WebGLRenderer` at native resolution times the resolution scale, with a 2D canvas on top for the HUD. Bullet time needs three passes, so its tells stay in colour while the world greys out:
@@ -109,7 +109,7 @@ Two Three.js traps:
 
 **Audio.** The 3D copy of `audio.js` gets `Sound.play(name, at)` with an optional world position, routed through a `PannerNode` (or a stereo pan plus distance gain). The music sequencer doesn't change. With text gone from play, positional sound carries more of the tells: glints, wind-ups, the riposte's rising tone, the eruption warnings.
 
-**Smoke test.** `3d/tools/smoke-test.js`, based on the 2D one, feeds random keys (including `F`) and random mouse movement. It checks that the player stays inside the arena bounds and outside solid boxes, and that the camera never ends up inside a box. Headless Chromium here (build 1194) gets WebGL2 through SwiftShader with no flags. Pass `--use-angle=swiftshader --enable-unsafe-swiftshader` anyway, since newer Chromium builds require them. The 2D smoke test stays as it is.
+**Smoke test.** `slashyslash2/tools/smoke-test.js`, based on the 2D one, feeds random keys (including `F`) and random mouse movement. It checks that the player stays inside the arena bounds and outside solid boxes, and that the camera never ends up inside a box. Headless Chromium here (build 1194) gets WebGL2 through SwiftShader with no flags. Pass `--use-angle=swiftshader --enable-unsafe-swiftshader` anyway, since newer Chromium builds require them. The 2D smoke test stays as it is.
 
 ## Mechanics in third person
 
@@ -117,7 +117,7 @@ Two Three.js traps:
 | --- | --- | --- |
 | A/D to move | WASD relative to the camera; the character turns toward where it's moving | |
 | Jump, double jump, jump cut | Same | |
-| Crouch, slide when running | Same, on `C`/`Ctrl` | Sliding is the main way under bolts |
+| Crouch, slide when running | Same, on `C` | Sliding is the main way under bolts |
 | Bullet jump toward the cursor | Crouch or slide plus jump launches you toward the aim point | |
 | Wall jump on the two boundary walls | Kick off any wall you touch, away from it | Defer wall running |
 | One-way platforms, drop-through | Solid platforms plus ledge mantle | One rule for collision, the camera's sweep and enemy navigation; mantling covers getting up |
@@ -235,7 +235,7 @@ A 5 m orbit camera needs room, so the arena follows clearance rules:
 
 ## Rival (AEGIS-07)
 
-The 2D README promises the rival is built on "the same skeleton, physics and power level as the player". In 3D that holds literally: both use one character controller (`3d/js/controller.js`) and one rig, with the rival's own parts and palette. Its `CHARACTERS` entry (palette, weapon, name, utility slot) becomes the hook for its model too, so a future character select picks a model as well as a moveset. The 2D rival steers through an intent object (`{ mx, jump, drop }` from `navigate()`); the 3D one uses `{ move, jump, dash, zipTarget }`.
+The 2D README promises the rival is built on "the same skeleton, physics and power level as the player". In 3D that holds literally: both use one character controller (`slashyslash2/js/controller.js`) and one rig, with the rival's own parts and palette. Its `CHARACTERS` entry (palette, weapon, name, utility slot) becomes the hook for its model too, so a future character select picks a model as well as a moveset. The 2D rival steers through an intent object (`{ mx, jump, drop }` from `navigate()`); the 3D one uses `{ move, jump, dash, zipTarget }`.
 
 **Ports with little design change:**
 
@@ -268,11 +268,13 @@ Each phase ends with the 3D page playable and its smoke test passing. The 2D gam
 
 ### Phase 0: set up the lane (~300)
 
-- Create `3d/` with `index.html`, a README on how to run it, and copies of `util.js`, `settings.js`, `input.js`, `audio.js`, `upgrades.js`, `waves.js`, `ui.js` and the CSS. Take every copy at one commit and record that commit in `3d/SYNCED_FROM`.
-- In the copies: the 3D storage keys; the Game core from a copy of `main.js` moved into `3d/js/core.js` (style, scoring, slow motion, hitstop, bullet time and its kinds, cutscene state, `announce`, `onKill`, upgrades); an `Arena` interface for `Director` (`spawnPoints('ground' | 'high')`, `perches`, `barrelSpots`, `freeGroundAt`); and the optional position for `Sound.play`.
-- `3d/tools/vendor-three.js` and the committed `3d/vendor/three.js`; `3d/tools/build.js`; `3d/tools/smoke-test.js`.
+- Create slashyslash2 with `index.html`, a README on how to run it, and copies of `util.js`, `settings.js`, `input.js`, `audio.js`, `upgrades.js`, `waves.js`, `ui.js` and the CSS. Take every copy at one commit and record that commit in `slashyslash2/SYNCED_FROM`.
+- In the copies: the 3D storage keys; the Game core from a copy of `main.js` moved into `slashyslash2/js/core.js` (style, scoring, slow motion, hitstop, bullet time and its kinds, cutscene state, `announce`, `onKill`, upgrades); an `Arena` interface for `Director` (`spawnPoints('ground' | 'high')`, `perches`, `barrelSpots`, `freeGroundAt`); and the optional position for `Sound.play`.
+- `slashyslash2/tools/vendor-three.js` and the committed `slashyslash2/vendor/three.js`; `slashyslash2/tools/build.js`; `slashyslash2/tools/smoke-test.js`.
 
-Done when: `3d/index.html` shows a lit test room, the 3D smoke test passes, and `git status` shows nothing changed outside `3d/`.
+Done when: `slashyslash2/index.html` shows a lit test room, the 3D smoke test passes, and this repo is unchanged apart from this plan.
+
+**Status: done** in slashyslash2. The test room has the orbit camera with a ray pull-in (the sphere sweep comes in Phase 1), pointer-locked mouse look, a stand-in figure, the fixed light pool and merged level meshes (about 20 draw calls). `render.js` holds frame composition and the HUD canvas, mirroring the 2D file's role.
 
 ### Phase 1: playable slice and camera test (~3,200)
 
@@ -284,7 +286,7 @@ Done when: `3d/index.html` shows a lit test room, the 3D smoke test passes, and 
 - Scrappers on the street-level flow field, as low-poly models, with glint, parry and counter.
 - Coloured outlines (needed for elites and the rival later; cheap to prove here).
 - HUD: health, shield, dash charges, parry gauge, crosshair, threat ring.
-- `3d/tools/feel-check.js`.
+- `slashyslash2/tools/feel-check.js`.
 
 **Feel test (decide before Phase 2).** Play 15 minutes against waves of scrappers, with no text on screen, and check:
 
@@ -307,7 +309,7 @@ If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, c
 - Style meter.
 - Slow motion, hitstop, and the bullet-time passes with the tell layer.
 - Positional audio.
-- 3D effects in `3d/js/fx.js`: additive sprites, rings, lightning, ground marks, trails, gibs.
+- 3D effects in `slashyslash2/js/fx.js`: additive sprites, rings, lightning, ground marks, trails, gibs.
 
 ### Phase 3: enemies, AI and waves (~3,000)
 
@@ -342,7 +344,7 @@ If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, c
 - A 3D README in the same shape as the 2D one.
 - A pass over the 2D README and the `SYNCED_FROM` diff for anything you want that the 3D lane still lacks.
 
-There's no cutover. The 2D game stays at the repo root as the main game, and the 3D lane keeps growing next to it for as long as it's fun to tinker on. End state: about 15,000 lines under `3d/` (about 2,000 copied, about 13,000 new).
+There's no cutover. The 2D game stays in this repo as the main game, and the 3D lane keeps growing in its own for as long as it's fun to tinker on. End state: about 15,000 lines in slashyslash2 (about 2,000 copied, about 13,000 new).
 
 ## Where each 2D file ends up in the 3D lane
 
@@ -366,7 +368,7 @@ The 2D files themselves never change.
 | `rival.js` | 1,726 | Reimplemented, with four moves redesigned; poses feed the 3D rig; cutscenes use 3D cameras; `BladeWave`, `GroundEruption` and `drawEnergyBeam` become 3D |
 | `ultimates.js` | 226 | Reimplemented; the `registerUltimate` API stays |
 | `level.js` | 704 | Not used; its street layout is copied as data for Phase 1 |
-| `render.js` | 508 | HUD half and title card copied; scene drawing not used; the bullet-time cues move to the tell layer |
+| `render.js` | 508 | HUD half and title card copied into `render.js`, which composes the 3D frame; scene drawing not used; the bullet-time cues move to the tell layer |
 | `fx.js` | 431 | Screen flashes copied; the rest replaced by 3D effects |
 | `sprites.js` | 114 | Not used; `ik2` and `Sprite.outlined` are the references for the 3D rig and the outline pass |
 
@@ -374,12 +376,12 @@ The 3D lane's layout:
 
 | Path | Contents |
 | --- | --- |
-| `3d/index.html`, `3d/README.md`, `3d/SYNCED_FROM` | Entry page, how to run it, the last 2D commit synced from |
-| `3d/css/` | Copied from 2D |
-| `3d/vendor/three.js` | Vendored Three.js |
-| `3d/tools/` | `vendor-three.js`, `build.js`, `smoke-test.js`, `feel-check.js` |
-| `3d/js/` (same names as 2D) | `util`, `settings`, `input`, `audio`, `upgrades`, `waves`, `ui`, `main`, `training`, `player`, `utilities`, `enemies`, `specialists`, `rival`, `ultimates`, `fx` |
-| `3d/js/` (new) | `core.js`, `world.js` (arena boxes, collision, raycasts, sphere sweep, navigation), `gfx.js` (renderer, textures, lighting bake, light pool, fog, outline and bullet-time passes), `camera.js`, `rig.js`, `models.js`, `controller.js` |
+| `slashyslash2/index.html`, `slashyslash2/README.md`, `slashyslash2/SYNCED_FROM` | Entry page, how to run it, the last 2D commit synced from |
+| `slashyslash2/css/` | Copied from 2D |
+| `slashyslash2/vendor/three.js` | Vendored Three.js |
+| `slashyslash2/tools/` | `vendor-three.js`, `build.js`, `smoke-test.js`, `feel-check.js` |
+| `slashyslash2/js/` (same names as 2D) | `util`, `settings`, `input`, `audio`, `upgrades`, `waves`, `ui`, `main`, `render`, `training`, `player`, `utilities`, `enemies`, `specialists`, `rival`, `ultimates`, `fx` |
+| `slashyslash2/js/` (new) | `core.js`, `world.js` (arena boxes, collision, raycasts, sphere sweep, navigation), `gfx.js` (renderer, textures, lighting bake, light pool, fog, outline and bullet-time passes), `camera.js`, `rig.js`, `models.js`, `controller.js` |
 
 ## Risks, highest first
 
@@ -398,7 +400,7 @@ The 3D lane's layout:
 
 Recommendations first.
 
-- **A link from the 2D menu to the 3D page?** No, for now. It would mean editing the 2D game's `index.html` and `ui.js`. Open `3d/index.html` directly, or bookmark it.
+- **A link from the 2D menu to the 3D page?** No, for now. It would mean editing the 2D game's `index.html` and `ui.js`. Open slashyslash2's `index.html` directly, or bookmark it.
 - **Shared unlocks:** keep saves separate. If beating AEGIS-07 in 2D should count in 3D, the 3D lane can later read the 2D save without ever writing to it.
 - **Red flash in 3D:** a tracked lock with a safe wedge behind it. The fallback is a full circle that only a dash through its body escapes.
 - **Lock-on:** soft aim assist only, unless the feel test asks for more.
