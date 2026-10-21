@@ -1285,7 +1285,7 @@ class Player {
     if (this.dead || Game.cineActive()) return 'ignored';
     if (this.ult) return 'immune';
     // red-flash attacks go straight through a parry; a dash slips them
-    if (h.unparryable && this.perilWinT > 0) { this.perilDodge(h); return 'dodged'; }
+    if (h.unparryable && !h.hazard && this.perilWinT > 0) { this.perilDodge(h); return 'dodged'; }
     if (this.parryActive() && !h.unparryable) { this.doParry(h); return 'parried'; }
     if (this.iframes > 0 || this.iaido) return 'ignored';
     let dmg = h.dmg * (Game.has('glass') ? 1.25 : 1);

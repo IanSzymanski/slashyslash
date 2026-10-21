@@ -88,8 +88,10 @@ class Rival extends Enemy {
   damageTakenMul() { return this.stunT > 0 ? 1.3 : this.phase === 1 && !this.shield ? 0.6 : 1; }
   // In phase 2 your parry is met blade to blade: no counter, and it raises a guard instead.
   clashes() { return this.phase === 2 && !(this.act && this.act.move === 'riposte'); }
+  // 0 at the start of phase 2, 1 near death.
+  rageK() { return clamp(1 - this.hp / (this.p2Hp || this.maxHp), 0, 1); }
   // Later combos come faster as its health drops.
-  rageGap() { return this.phase === 2 ? lerp(1.8, 0.8, clamp(1 - this.hp / (this.p2Hp || this.maxHp), 0, 1)) : 1; }
+  rageGap() { return this.phase === 2 ? lerp(1.8, 0.8, this.rageK()) : 1; }
   // phase 1 can't be skipped: damage stops at half health until the limiters come off
   gateDamage(d) { return this.phase === 1 ? Math.max(0, Math.min(d, this.hp - Math.floor(this.maxHp / 2))) : d; }
   // Hits it deflects without a shield: its own parries, and the phase change.
@@ -173,9 +175,13 @@ class Rival extends Enemy {
   }
   // After you parry its riposte it usually staggers; sometimes it recovers into a guard that parries your counter back.
   rollReparry() {
-    const k = clamp(1 - this.hp / (this.p2Hp || this.maxHp), 0, 1);
-    this.reparried = chance(this.reparried ? 0.15 : lerp(0.3, 0.55, k));
+    this.reparried = chance(this.reparried ? 0.15 : lerp(0.3, 0.55, this.rageK()));
     return this.reparried;
+  }
+  // Its first parry usually answers gold, but sometimes red: read which as it happens.
+  rollRedFirst() {
+    this.redFirst = chance(this.redFirst ? 0.12 : lerp(0.25, 0.4, this.rageK()));
+    return this.redFirst;
   }
   // Phase 2 guard: anything swung into it is parried and answered with a riposte.
   // why: 'clash' (you parried its swing), 'read' (it saw your attack coming), 'stance' (it waits for you to commit),
@@ -209,7 +215,7 @@ class Rival extends Enemy {
     Game.hitstop(0.06);
     Game.shake(0.2);
     if (!p.dead) { p.vx = sign(p.x - this.x || 1) * 170; p.vy = Math.min(p.vy, -80); }
-    if (reparry) { this.startPeril(); return; }
+    if (reparry || this.rollRedFirst()) { this.startPeril(); return; }
     this.startMove('riposte', null);
     // the world drains to grey, it glows gold, and a ring closes on you: parry as the ring closes
     const real = this.tele(RIVAL_MOVES.riposte.wind) / RIPOSTE_BT_SCALE;
@@ -297,6 +303,7 @@ class Rival extends Enemy {
     if (hum && !this.beamLoop) this.beamLoop = Sound.loop('beam');
     else if (!hum && this.beamLoop) this.stopLoops();
     if (this.dying) { this.updateDying(dt); return; }
+    if (this.storm && !Game.cineActive()) this.updateStorm(dt);
     if (this.phase === 1 && this.hp <= this.maxHp / 2) this.enterPhase2();
     if (this.phase === 1 && !this.shield) {
       this.shieldDownT -= dt;
@@ -332,6 +339,7 @@ class Rival extends Enemy {
       FX.ring(this.x, this.cy, 4, 60, 0.4, { c: '#ff6a7a', core: '#ffffff', w: 2 });
       Sound.play('bossRoar');
       Game.announce('MELEE DUEL', null, '#ff6a7a', 2.2);
+      this.startStorm();
       return;
     }
     const hadShield = this.shield, p = Game.player;
@@ -427,6 +435,27 @@ class Rival extends Enemy {
     // a breather before the first combo
     this.act = null; this.transT = 0.3; this.cds.combo = 1.2; this.riseV = 0; this.hover = false;
     Game.announce(this.duel ? 'MELEE DUEL' : 'PHASE 2', null, '#ff6a7a', 2.2);
+    this.startStorm();
+  }
+  // The melee phase opens with the street erupting: beams burst out of the ground and hold for a few seconds.
+  startStorm() { this.storm = { t: 0, dur: 12, next: 0.3, n: 0 }; }
+  updateStorm(dt) {
+    const st = this.storm;
+    st.t += dt; st.next -= dt;
+    if (st.t >= st.dur) { this.storm = null; return; }
+    if (st.next > 0) return;
+    // an opening volley, then one at a time; every third lands where you stand
+    for (let i = st.n === 0 ? 3 : 1; i > 0; i--) this.spawnEruption(st.n++ % 3 === 0);
+    st.next = rand(0.9, 1.5);
+  }
+  spawnEruption(onPlayer) {
+    const p = Game.player;
+    for (let tries = 0; tries < 8; tries++) {
+      const x = clamp(onPlayer && tries === 0 ? p.x + rand(-6, 6) : p.x + (chance(0.5) ? 1 : -1) * rand(40, 190), 40, Level.W - 40);
+      if (Game.hazards.some((h) => h instanceof GroundEruption && Math.abs(h.x - x) < 34)) continue;
+      Game.hazards.push(new GroundEruption(x, Level.GROUND, 12 * this.dmgMul));
+      return;
+    }
   }
   chooseAct(p) {
     const dx = p.x - this.x, adx = Math.abs(dx), dy = p.y - this.y;
@@ -846,27 +875,9 @@ class Rival extends Enemy {
     if (I.stage === 'erupt') W = 4 + 16 * easeOutBack(clamp((ct - 0.75) / 0.2, 0, 1)) + Math.sin(t * 50) * 1.5;
     else if (I.stage === 'emerge') W = lerp(20, 9, clamp((ct - 2.0) / 0.4, 0, 1)) + Math.sin(t * 50);
     else W = (1 - clamp((ct - 2.55) / 0.12, 0, 1)) * 9;
-    if (W > 0.5) this.drawBeam(ctx, x, y, top, W, t);
+    if (W > 0.5) drawEnergyBeam(ctx, x, y, top, W, t);
     // a dark figure inside the light
     if (I.stage === 'emerge' && this.spriteCopy) Sprite.outlined(ctx, this.spriteCopy, x, y, '#ffffff', { fill: '#0b0910' });
-  }
-  drawBeam(ctx, x, y, top, W, t) {
-    const xi = Math.round(x), h = Math.round(y - top);
-    const band = (w, col) => { const ww = Math.max(1, Math.round(w)); ctx.fillStyle = col; ctx.fillRect(xi - (ww >> 1), top, ww, h); };
-    ctx.globalAlpha = 0.45; band(W + 10, '#145e6a'); ctx.globalAlpha = 1;
-    band(W + 2, '#2ab8d8'); band(W * 0.7, '#7af0ff'); band(Math.max(2, W * 0.35), '#ffffff');
-    // pulses racing up the column
-    ctx.fillStyle = '#ffffff';
-    const bw = Math.round(W + 4);
-    for (let i = 0; i < 5; i++) ctx.fillRect(xi - (bw >> 1), Math.round(y - ((t * 340 + i * 53) % (h + 20))), bw, 2);
-    // ragged edges
-    ctx.fillStyle = '#bff8ff';
-    for (let yy = top; yy < y; yy += 3) {
-      if (Math.random() < 0.3) ctx.fillRect(xi + (Math.random() < 0.5 ? -1 : 1) * Math.round(W / 2 + 1 + Math.random() * 3), yy, 1, 2);
-    }
-    // flared base
-    ctx.fillStyle = '#4af0ff'; pring(ctx, x, y - 1, W * 1.4 + Math.sin(t * 30) * 2, 0.3, 2);
-    ctx.fillStyle = '#ffffff'; pring(ctx, x, y - 1, W * 0.8, 0.3, 1);
   }
 
   // ---------- knockout ----------
@@ -1209,6 +1220,90 @@ class Rival extends Enemy {
 for (const k of ['pose', 'updateScarf', 'makeGhost']) Rival.prototype[k] = Player.prototype[k];
 
 function adxNear(e, p) { return Math.abs(p.x - e.x) < 34; }
+
+// Column of energy from the street to the sky (the entry beacon and the phase-2 eruptions).
+function drawEnergyBeam(ctx, x, y, top, W, t) {
+  const xi = Math.round(x), h = Math.round(y - top);
+  const band = (w, col) => { const ww = Math.max(1, Math.round(w)); ctx.fillStyle = col; ctx.fillRect(xi - (ww >> 1), top, ww, h); };
+  ctx.globalAlpha = 0.45; band(W + 10, '#145e6a'); ctx.globalAlpha = 1;
+  band(W + 2, '#2ab8d8'); band(W * 0.7, '#7af0ff'); band(Math.max(2, W * 0.35), '#ffffff');
+  // pulses racing up the column
+  ctx.fillStyle = '#ffffff';
+  const bw = Math.round(W + 4);
+  for (let i = 0; i < 5; i++) ctx.fillRect(xi - (bw >> 1), Math.round(y - ((t * 340 + i * 53) % (h + 20))), bw, 2);
+  // ragged edges
+  ctx.fillStyle = '#bff8ff';
+  for (let yy = top; yy < y; yy += 3) {
+    if (Math.random() < 0.3) ctx.fillRect(xi + (Math.random() < 0.5 ? -1 : 1) * Math.round(W / 2 + 1 + Math.random() * 3), yy, 1, 2);
+  }
+  // flared base
+  ctx.fillStyle = '#4af0ff'; pring(ctx, x, y - 1, W * 1.4 + Math.sin(t * 30) * 2, 0.3, 2);
+  ctx.fillStyle = '#ffffff'; pring(ctx, x, y - 1, W * 0.8, 0.3, 1);
+}
+
+// A patch of street cracks and glows, then erupts in a column of energy that holds for a few seconds.
+class GroundEruption {
+  constructor(x, y, dmg) {
+    this.x = x; this.y = y; this.dmg = dmg; this.W = 14;
+    this.t = 0; this.warn = 0.8; this.hold = 2.6; this.fade = 0.3; this.dead = false; this.up = false;
+    FX.decal('crack', x, y, { len: 12, n: 5 });
+    if (Math.abs(x - Game.player.x) < 320) Sound.play('eruptWarn', { dur: this.warn });
+  }
+  update(dt) {
+    this.t += dt;
+    if (this.t >= this.warn + this.hold + this.fade) { this.dead = true; return; }
+    if (this.t < this.warn) {
+      if (Math.random() < 0.5) FX.sparks(this.x + rand(-6, 6), this.y - 1, 1, -Math.PI / 2, 0.4, 30, 90, { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a', g: -60 });
+      return;
+    }
+    if (!this.up) this.erupt();
+    if (this.t >= this.warn + this.hold) return;
+    if (Math.random() < 0.4) FX.sparks(this.x + rand(-5, 5), this.y - rand(0, 140), 1, -Math.PI / 2, 0.6, 40, 140, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a', g: -80 });
+    const p = Game.player;
+    // the column runs from the street to the sky, so rooftops are no refuge
+    if (!p.dead && p.y <= this.y + 2 && Math.abs(p.x - this.x) < this.W / 2 + p.w / 2) {
+      p.takeHit({ dmg: this.dmg, x: this.x, y: p.cy, kind: 'hazard', knock: 220, unparryable: true, hazard: true });
+    }
+  }
+  erupt() {
+    this.up = true;
+    const near = Math.abs(this.x - Game.player.x) < 320;
+    FX.ring(this.x, this.y - 2, 3, 30, 0.35, { sy: 0.35, c: '#4af0ff', core: '#ffffff', w: 2 });
+    FX.sparks(this.x, this.y - 2, 18, -Math.PI / 2, 1.2, 80, 320, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a' });
+    FX.dust(this.x, this.y, 8, { smax: 80 });
+    FX.debris(this.x, this.y - 1, 6, ['#4a4252', '#5c5464'], 200);
+    FX.light(this.x, this.y - 30, 90, '#4af0ff', 1, 0.3);
+    if (near) { Sound.play('eruptBeam'); Game.shake(0.15); }
+  }
+  drawEmissive(ctx, camX, camY) {
+    const x = this.x - camX, y = this.y - camY, t = this.t;
+    if (t < this.warn) {
+      // glowing crack, quickening blink, and a faint dotted line where the column will stand
+      const k = t / this.warn, on = ((t * (6 + k * 18)) | 0) % 2;
+      ctx.globalAlpha = 0.25 + 0.35 * k; ctx.fillStyle = '#2ab8d8';
+      pdisc(ctx, x, y - 1, 3 + k * 6);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = on ? '#ffffff' : '#4af0ff';
+      pring(ctx, x, y - 1, 6 + k * 10, 0.3, 1);
+      pring(ctx, x, y - 1, 22 - k * 12, 0.3, 1);
+      if (k > 0.2) {
+        ctx.globalAlpha = on ? 0.8 : 0.4;
+        ctx.fillStyle = '#7af0ff';
+        for (let yy = y - 4 - (((t * 120) | 0) % 6); yy > -10; yy -= 6) ctx.fillRect(Math.round(x) - 1, Math.round(yy), 2, 3);
+        ctx.globalAlpha = 1;
+      }
+      return;
+    }
+    const h = t - this.warn, f = h > this.hold ? (h - this.hold) / this.fade : 0;
+    // overshoots wide as it bursts, then settles; thins out as it collapses
+    const W = this.W * (h < 0.12 ? lerp(2, 1, h / 0.12) : 1) * (1 - f) + Math.sin(t * 25);
+    if (W > 0.5) drawEnergyBeam(ctx, x, y, -10, W, t);
+  }
+  addLights() {
+    if (this.t < this.warn) { FX.frameLight(this.x, this.y - 4, 18 + 14 * (this.t / this.warn), '#4af0ff', 0.8); return; }
+    for (const yy of [8, 70, 140]) FX.frameLight(this.x, this.y - yy, 46, '#4af0ff', 0.9);
+  }
+}
 
 // Ground ellipse showing where a grenade blast will reach.
 function drawBlastZone(ctx, x, y, R, t) {

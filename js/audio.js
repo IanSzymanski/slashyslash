@@ -506,6 +506,18 @@ const Sound = (() => {
       tone({ type: 'sawtooth', f0: 180, f1: 720, dur: d, vol: 0.04, a: 0.02, slide: d });
       tone({ type: 'sine', f0: 1975, dur: 0.12, vol: 0.06, delay: d, rev: 0.4 });
     },
+    // phase-2 eruptions: crackle building under the street, then the column bursts out
+    eruptWarn(p) {
+      const d = p.dur || 0.8;
+      crackle(d, 0.12, { f: 600 });
+      tone({ type: 'sawtooth', f0: 50, f1: 110, dur: d, vol: 0.05, a: d * 0.6 });
+    },
+    eruptBeam() {
+      tone({ type: 'sine', f0: 140, f1: 40, dur: 0.5, vol: 0.45 });
+      noise({ dur: 0.6, vol: 0.4, type: 'lowpass', f0: 3600, f1: 200, rev: 0.4 });
+      tone({ type: 'sawtooth', f0: 220, f1: 660, dur: 0.5, vol: 0.03, rev: 0.4 });
+      crackle(0.5, 0.25, { f: 700 });
+    },
     perilDodge() {
       noise({ dur: 0.22, vol: 0.3, f0: 3200, f1: 700, q: 1.2 });
       tone({ type: 'sine', f0: 1320, f1: 2640, dur: 0.22, vol: 0.06, rev: 0.5 });
