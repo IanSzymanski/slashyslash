@@ -114,7 +114,10 @@ const Game = {
   // kind 'rebound' (tethered grenade), 'riposte' (parry the rival's counter now), 'clash' (blades locked).
   bulletTime(dur, o = {}) {
     this.btT = dur; this.btDur = dur; this.btKind = o.kind || 'rebound'; this.btOwner = o.owner || null;
-    this.slowmo(o.scale || 0.25, dur, true);
+    // its speed replaces any slow motion already running, so cue timing is the same every time
+    if (!S.visuals.slowmo) return;
+    this.slowScale = o.scale || 0.25; this.slowT = dur;
+    Sound.setSlow(true);
   },
   endBulletTime() {
     if (this.btT <= 0) return;

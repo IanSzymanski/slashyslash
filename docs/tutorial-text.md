@@ -66,7 +66,9 @@ Boss bar under Aegis's health:
 
 ## Taught by visuals only (no text yet)
 
-- Red flash (AEGIS-07, phase 2): it flashes red and a spiked red ring closes on you. Parrying does nothing; dash as the ring closes. Dodging it leaves Aegis stunned. Gold ring means parry, red ring means dash.
+- Red flash (AEGIS-07, phase 2): it flashes red and cuts everything on the side it faced. Parrying, jumping and dashing away all fail; dash through it to its back. Escaping leaves Aegis stunned. Gold means parry on the eye flash, red means get behind it.
+- Eye glints (AEGIS-07): cyan when it raises a guard, gold before a riposte (parry on the flash), red before the red flash lands.
+- Dive bomb: a bracket mark on the street shows where it will land; it turns white when locked.
 - Cyan guard right after you parry its riposte: it will parry your counter-slash and go into the red flash.
 - Its first parry can answer gold or red: read the colour and ring as it happens.
 - Phase-2 eruptions: a glowing spot with a dashed line to the sky means a beam is about to burst there.

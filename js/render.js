@@ -158,18 +158,15 @@ const Render = {
     if (Game.btKind === 'riposte' || Game.btKind === 'clash' || Game.btKind === 'peril') { this.drawParryCue(ctx, cx, cy, k, t); return; }
     this.drawReboundCue(ctx, cx, cy, k, t);
   },
-  // The rival's tell in bullet time. Clash: it glows cyan (guarding). Riposte: it glows gold, and a ring
-  // closes on you; parry as the ring meets the inner circle. Red flash: it glows red, a spiked ring closes
-  // and chevrons point out of it; dash as the ring closes.
+  // The rival's tell in bullet time: it glows gold (parry) or red (dash) and its eye gleams brighter until it
+  // flashes; act on the flash. A clash adds nothing here: the glint as it raises its guard is the tell.
   drawParryCue(ctx, cx, cy, k, t) {
-    const r = Game.btOwner, p = Game.player;
-    if (!r || r.dead || !p || p.dead) return;
-    const kind = Game.btKind, peril = kind === 'peril', col = peril ? PERIL_RED : kind === 'riposte' ? '#ffd070' : '#4af0ff';
+    const r = Game.btOwner, p = Game.player, kind = Game.btKind;
+    if (kind === 'clash' || !r || r.dead || !p || p.dead) return;
+    const peril = kind === 'peril', col = peril ? PERIL_RED : '#ffd070';
     if (r.spriteCopy && !(r.perilFlash > 0)) Sprite.outlined(ctx, r.spriteCopy, r.x - cx, r.y - cy, col, { glow: 0.45 * k });
-    if (kind === 'clash') return;
     const [pcx, pcy] = p.chest(), px = pcx - cx, py = pcy - cy;
-    const q = r.cueProgress ? r.cueProgress() : 0;
-    // speed lines converging on you, where the riposte will land
+    // speed lines converging on you, where the blow will land
     ctx.globalAlpha = 0.3 * k;
     ctx.fillStyle = peril ? '#ffd0d4' : '#fff4d0';
     for (let i = 0; i < 16; i++) {
@@ -181,29 +178,14 @@ const Render = {
     const [rcx, rcy] = r.chest(), rx = rcx - cx, ry = rcy - cy, L = Math.hypot(px - rx, py - ry) || 1;
     ctx.fillStyle = col;
     for (let d = 10; d < L - 12; d += 5) ctx.fillRect(Math.round(rx + ((px - rx) * d) / L), Math.round(ry + ((py - ry) * d) / L), 1, 1);
-    const now = q >= 0.94, rr = lerp(46, 10, easeInQuad(q));
-    if (peril) {
-      // spiked ring closing in, and chevrons pointing out either side: get out, don't parry
-      ctx.fillStyle = '#0b0910'; pring(ctx, px, py, rr, 1, 3);
-      ctx.fillStyle = now ? '#ffffff' : PERIL_RED; pring(ctx, px, py, rr, 1, 2);
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * TAU + t * 1.5;
-        pline(ctx, px + Math.cos(a) * (rr + 4), py + Math.sin(a) * (rr + 4), px + Math.cos(a) * Math.max(4, rr - 5), py + Math.sin(a) * Math.max(4, rr - 5), 1);
-      }
-      const push = now ? 3 : ((t * 6) | 0) % 2;
-      ctx.fillStyle = now ? PERIL_RED : '#ffffff';
-      for (const d of [-1, 1]) for (let c = 0; c < 2; c++) {
-        const bx = px + d * (13 + push + c * 4);
-        pline(ctx, bx - d * 2, py - 3, bx, py, 1); pline(ctx, bx, py, bx - d * 2, py + 3, 1);
-      }
-      return;
+    // the eye gleams brighter and blinks faster as the flash nears; FX draws the flash itself
+    const q = r.cueProgress ? r.cueProgress() : 1;
+    if (q < 1) {
+      const [vx, vy] = r.visorPos(), ex = Math.round(vx - cx), ey = Math.round(vy - cy), sz = Math.round(1 + q * 3);
+      ctx.fillStyle = ((t * (8 + q * 16)) | 0) % 2 ? '#ffffff' : col;
+      ctx.fillRect(ex - sz, ey, sz * 2 + 1, 1);
+      ctx.fillRect(ex, ey - sz, 1, sz * 2 + 1);
     }
-    // closing ring: parry when it meets the inner circle
-    ctx.fillStyle = '#0b0910'; pring(ctx, px, py, rr, 1, 3);
-    ctx.fillStyle = now ? '#ffffff' : '#ffd070'; pring(ctx, px, py, rr, 1, 2);
-    ctx.fillStyle = now ? '#ffd070' : '#ffffff';
-    for (let i = 0; i < 16; i += 2) { const a = (i / 16) * TAU + t * 2; ctx.fillRect(Math.round(px + Math.cos(a) * 10), Math.round(py + Math.sin(a) * 10), 1, 1); }
-    if (now) { ctx.fillStyle = '#ffffff'; pring(ctx, px, py, 10, 1, 1); }
   },
   // Speed lines converging on the tethered grenade, a closing reticle, and where the kick will send it.
   drawReboundCue(ctx, cx, cy, k, t) {

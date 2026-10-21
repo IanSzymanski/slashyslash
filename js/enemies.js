@@ -515,10 +515,12 @@ function hurtEnemy(e, dmg, o = {}) {
     if (ky < 0) { e.vy = Math.min(e.vy, ky); if (ky < -60) e.onGround = false; }
     else if (ky > 0) e.vy = Math.max(e.vy, ky);
   }
+  // heavy attacks hit brutes and scrappers hard but don't stagger them
+  const steady = o.heavyAtk && (e.type === 'brute' || e.type === 'scrapper');
   if (e.heavy) {
     e.poise += d;
-    if (o.heavy || e.poise > 80) { e.poise = 0; e.stagger(o.stagger || 0.4); }
-  } else e.stagger(Math.max(o.stagger || 0.2, 0.12));
+    if (!steady && (o.heavy || e.poise > 80)) { e.poise = 0; e.stagger(o.stagger || 0.4); }
+  } else if (!steady) e.stagger(Math.max(o.stagger || 0.2, 0.12));
   const hx = e.x, hy = e.cy;
   const ang = o.angle !== undefined ? o.angle : Math.atan2(hy - Game.player.cy, hx - Game.player.x);
   FX.sparks(hx, hy, o.heavy ? 12 : 7, ang, 1.3, 60, 240);

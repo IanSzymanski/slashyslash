@@ -51,7 +51,7 @@ class FriendlyWave {
       if (e.dead || e.spawning || this.hit.has(e)) continue;
       if (Math.abs(e.x - this.x) < 8 + e.w / 2 && e.y > this.y - 8 && e.y < this.y + 4) {
         this.hit.add(e);
-        hurtEnemy(e, this.dmg, { kx: this.dir * 140, ky: -220, cause: this.cause, angle: -Math.PI / 2, stagger: 0.5, hitstop: 0.01 });
+        hurtEnemy(e, this.dmg, { kx: this.dir * 140, ky: -220, cause: this.cause, heavyAtk: this.cause === 'heavy', angle: -Math.PI / 2, stagger: 0.5, hitstop: 0.01 });
       }
     }
   }
