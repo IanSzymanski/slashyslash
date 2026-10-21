@@ -297,13 +297,17 @@ Done when: `slashyslash2/index.html` shows a lit test room, the 3D smoke test pa
 
 If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, change the arena clearances and the camera's pivot and distance before changing anything else. Don't start Phase 2 until all four pass.
 
-**Status: built, except the player's model, rig, poses and scarf**, which wait on the model's design; a stand-in figure takes their place. The feel test is next. Notes from the build:
+**Status: built.** The feel test is next. Notes from the build:
 
 - Pulled forward from Phase 3 because feel-test item 2 needs them: the camera rule for attack slots, glints drawn over walls at a minimum size, threat ring markers (wind-ups, glints, hit direction), pickups and damage numbers.
 - The street's 2D buildings became solid blocks behind the street with walkable roofs; a row of facades too tall to climb closes the front, so the street is a 14 m canyon. Platforms are solid slabs you mantle onto. `feel-check.js` confirms every tier is reachable (highest climb 9.1 m against a 9.7 m reach) and the clearance rules hold (street 14 m, headroom 5.55 m, narrowest alley 6.36 m).
 - Converted movement: run 13.8 m/s, jump 4.4 m, double jump 8.2 m, dash 6.2 m, slide 10.9 m.
 - The camera's vertical smoothing can lag the pivot into a platform right after a climb, so the pivot is swept up from the top of the head before the camera is swept back from the pivot.
 - Lights are baked per vertex on a grid of at most 1 m with shadow rays (about 50 ms at load); characters take the baked light under their feet through a uniform, so the scene has no ambient light.
+- The player model follows the concept sheets loosely: charcoal voxel-noise armour, a red right arm, a glowing visor, helmet fins, gold fittings, red running lights, a glowing curved katana and a scarf fraying to black. It is rigid parts on bones like the scrapper (one draw call, gibs on death).
+- Poses reuse the 2D pose function's logic: its feet and hand targets on the side plane are mapped into 3D and reached with two-bone IK, and swings point the blade along the 3D arc the trail uses. This covers more than Phase 2's "new 3D poses" list asks for; those poses may only need tuning.
+- The scarf is a verlet chain (7 points) pinned at the neck, pushed back by speed and drifting left, kept out of the torso and above the ground.
+- Characters get a cool rim light. Without it the dark armour disappeared against the night street.
 
 ### Phase 2: full move set (~2,300)
 
@@ -319,11 +323,21 @@ If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, c
 - Positional audio.
 - 3D effects in `slashyslash2/js/fx.js`: additive sprites, rings, lightning, ground marks, trails, gibs.
 
+**Status: built.** Street Waves (scrappers, then gunners and grenadiers) is the feel test for it. Notes from the build:
+
+- The gunner and the grenadier were pulled forward from Phase 3, since bolt returns and grenade kicks need something to answer. Their tells carry over: the gunner's laser (dashed while tracking, white once locked) and the grenadier's arc with its blast zone on the ground.
+- The tether fires down the crosshair's line and snaps to an enemy, barrel or grenade within 4 degrees; the line is drawn from the model's hand. Barrels sit on the 2D barrel spots.
+- The slam's two ground waves are one ring running out over the ground, stopped by walls. Aftershock uses the same ring for the plunge.
+- Bullet time desaturates lit surfaces in their shader rather than with a screen pass, so glowing parts and all effects stay bright, as the 2D emissive layer did.
+- Ground marks glow hot and cool to pale scars, since dark marks vanished on the dark street. Dashes, bullet jumps, plunges, zips and grenade reels leave afterimages of the model.
+- Movement numbers: bullet jump 10.5 m when aimed 30 degrees up, wall slide 6.4 m/s, wall kick +3.9 m.
+- Shield, health, the overflow rule, hit flags, the style meter, slow motion, hitstop and positional audio were already in from Phase 1.
+
 ### Phase 3: enemies, AI and waves (~3,000)
 
 - Navigation layers and jump links.
 - The humanoid enemy rig and its variants, then the brute, crawler and drone.
-- The other seven enemy types' behaviour.
+- The other five enemy types' behaviour (the gunner and grenadier came in Phase 2).
 - Attack slots with the camera rule; threat ring markers; glints drawn on top of walls with a minimum size.
 - Director modes: demo, endless, upgrades, wave modifiers.
 - Pickups and damage numbers (projected into the HUD canvas).
@@ -351,6 +365,18 @@ If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, c
 - The settings panel rows for camera, comfort and resolution.
 - A 3D README in the same shape as the 2D one.
 - A pass over the 2D README and the `SYNCED_FROM` diff for anything you want that the 3D lane still lacks.
+
+### Effects and sound over the phases
+
+Each phase ports the effects and sounds of what it builds, so a mechanic arrives with its 2D feedback rather than as a placeholder. The procedural sounds and music are already all in (`audio.js` is a copy of the 2D one, placed in 3D with HRTF panning); what's left is effects for things not built yet:
+
+- Phase 2 (done): every player move's effects, ground marks, afterimages, bullet time.
+- Phase 3: the brute, crawler, drone, shielder and sniper's tells and death effects, elite outlines.
+- Phase 4: the world's atmosphere: weather, neon and fire flicker in the full light bake, fog, the Blackout rebake, the Retro preset, and a glow pass if the 2D glow setting is missed.
+- Phase 5: the rival's effects: the red flash, blade waves, eruptions, ground rings, the pulse grenade's full blast, and the cutscenes.
+- Phase 6: the Sawblade.
+
+Keeping them in step with 2D: `tools/sync-2d.js` lists every 2D change to `fx.js`, `audio.js` and the files that call them since `SYNCED_FROM`; sound changes copy straight across, effect changes are ported by hand into `fx.js` or `views.js`. The 3D smoke test fails if a new effect's material compiles mid-fight, so each one gets added to the load-time prewarm.
 
 There's no cutover. The 2D game stays in this repo as the main game, and the 3D lane keeps growing in its own for as long as it's fun to tinker on. End state: about 15,000 lines in slashyslash2 (about 2,000 copied, about 13,000 new).
 
