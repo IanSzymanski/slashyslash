@@ -51,6 +51,8 @@ const RIVAL_MOVES = {
   // red flash: everything on the side it faced when it flashed, out to zone px, takes it. Only its back is safe.
   peril: { wind: 0.45, swing: 0.24, r: 70, span: 3.2, dmg: 45, close: true, unparryable: true, zone: 300 },
   wave: { wind: 0.4, swing: 0.22, r: 40, span: 2.6, dmg: 12, wave: true },
+  // the follow-up wave: it jumps as it winds up and throws it just past the top, at head height
+  waveAir: { wind: 0.42, swing: 0.22, r: 40, span: 2.6, dmg: 12, wave: true, air: true },
 };
 const RIVAL_COMBOS = [
   ['slash', 'slash', 'cleave'], ['thrust', 'slash', 'rise'], ['slash', 'spin'],
@@ -587,7 +589,7 @@ class Rival extends Enemy {
         if (this.cds.wave <= 0 && Math.abs(dy) < 30 && adx > 100) opts.push('wave', 'wave');
         if (this.cds.dive <= 0 && adx > 70 && dy > -90) opts.push('dive', 'dive');
         const c = pick(opts);
-        if (c === 'wave') { this.startMove('wave', chance(0.35) ? { list: ['wave', 'wave'], i: 0 } : null); this.cds.wave = rand(3.5, 5.5); return; }
+        if (c === 'wave') { this.startMove('wave', chance(0.35) ? { list: ['wave', 'waveAir'], i: 0 } : null); this.cds.wave = rand(3.5, 5.5); return; }
         if (c === 'dive') { this.startDive(p); this.cds.dive = rand(4, 6.5); return; }
       }
       if (this.cds.combo <= 0 && near) {
@@ -609,6 +611,11 @@ class Rival extends Enemy {
     this.act = { kind: 'melee', move: name, m: RIVAL_MOVES[name], phase: 'wind', t: 0, combo };
     this.facing = sign(Game.player.x - this.x) || this.facing;
     Sound.play('enemyWindup', { pm: name === 'riposte' ? 1.4 : 0.6 });
+    if (RIVAL_MOVES[name].air && this.onGround) {
+      this.vy = -320; this.onGround = false;
+      Sound.play('jump');
+      FX.dust(this.x, this.y, 4, { smax: 40 });
+    }
   }
   runAct(dt, p) {
     const a = this.act;
@@ -718,7 +725,7 @@ class Rival extends Enemy {
         } else FX.slashLine(cx, cy, cx + this.facing * 70, cy, { w: 3, dur: 0.25, pal: PALETTES.cyan });
         Sound.play('swing', { stage: m.r > 50 || m.spin ? 3 : 1 });
       }
-      return { mx: m.thrust || adxNear(this, p) ? 0 : sign(p.x - this.x) * 0.5 };
+      return { mx: m.thrust || m.air || adxNear(this, p) ? 0 : sign(p.x - this.x) * 0.5 };
     }
     this.attack.t = a.t;
     if (m.zone) return this.runPerilSwing(a, m, p);
@@ -1186,6 +1193,7 @@ class Rival extends Enemy {
       else if (mv === 'thrust') { o.lean = 0.35; o.hF = [-5, -12]; o.hB = [3, -11]; o.swordAng = 0; }
       else if (mv === 'spin') { o.hipY = -7; o.hF = [-6, -8]; o.hB = [4, -9]; o.swordAng = Math.PI; }
       else if (mv === 'wave') { o.hipY = -6; o.lean = 0.15; o.hF = [-7, -9]; o.hB = [-3, -10]; o.swordAng = Math.PI + 0.4; }
+      else if (mv === 'waveAir') { o.lean = 0.15; o.fF = [4, -6]; o.fB = [-3, -4]; o.hF = [-7, -9]; o.hB = [-3, -10]; o.swordAng = Math.PI + 0.4; }
       else { o.hF = [-4, -11]; o.hB = [2, -8]; o.swordAng = Math.PI - 0.4; }
       return true;
     }
@@ -1407,11 +1415,13 @@ function drawEnergyBeam(ctx, x, y, top, W, t) {
 }
 
 // A wide crescent of energy thrown off a full swing. It runs along the street: jump it, dash through it, or parry
-// or slash it back.
+// it back (a slash passes straight through).
 class BladeWave {
   constructor(x, y, dir, dmg) {
     this.x = x; this.y = y; this.dir = dir; this.vx = dir * 330; this.vy = 0; this.dmg = dmg;
     this.H = 34; this.hostile = true; this.life = 1.25; this.dead = false;
+    // only a parry sends it back; slashes pass through
+    this.parryOnly = true;
   }
   reflect(ang, mul, dmg) {
     this.dir = Math.cos(ang) >= 0 ? 1 : -1;

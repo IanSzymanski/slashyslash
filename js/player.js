@@ -612,7 +612,8 @@ class Player {
         }
       }
       for (const b of Game.projectiles) {
-        if (b.dead || !b.hostile || a.hit.has(b) || !(b.reflect || b.onSlash)) continue;
+        // parry-only projectiles (blade waves) pass straight through a slash
+        if (b.dead || !b.hostile || a.hit.has(b) || b.parryOnly || !(b.reflect || b.onSlash)) continue;
         const dx = b.x - cx, dy = b.y - cy;
         if (dx * dx + dy * dy < reach * reach && Math.abs(angDiff(a.ang, Math.atan2(dy, dx))) < a.span / 2) {
           a.hit.add(b);
@@ -882,7 +883,7 @@ class Player {
       if (!pr.dead && sectorRect(cx, cy, cfg.arcR, I.ang, cfg.span, pr.x - pr.w / 2, pr.y - pr.h, pr.w, pr.h)) pr.hit(60, { kx: Math.cos(I.ang) * 260, ky: -150, heavy: true });
     }
     for (const b of Game.projectiles) {
-      if (b.dead || !b.hostile || dist(b.x, b.y, cx, cy) >= cfg.arcR) continue;
+      if (b.dead || !b.hostile || b.parryOnly || dist(b.x, b.y, cx, cy) >= cfg.arcR) continue;
       if (b.onSlash) b.onSlash(this);
       else if (b.reflect) b.reflect(I.ang, 1.6, 30);
     }
