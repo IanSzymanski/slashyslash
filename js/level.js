@@ -5,7 +5,7 @@ const Level = {
   W: 2400, H: 440, GROUND: 400, CAM_Y_MIN: -60,
   solids: [], platforms: [], buildings: [],
   spawnGround: [], spawnHigh: [], barrelSpots: [],
-  lamps: [], neons: [], fires: [], beacons: [], covers: [],
+  lamps: [], neons: [], fires: [], beacons: [],
   layers: {},
   built: false,
 
@@ -31,11 +31,6 @@ const Level = {
       S_(cx, G - 10, 38, 10, 'car');
       S_(cx + 8, G - 17, 22, 7, 'carTop');
     }
-    S_(770, G - 10, 22, 10, 'barrier');
-    S_(2250, G - 10, 22, 10, 'barrier');
-    // Jersey barriers tall enough to stop shots at chest height. Running into one vaults it.
-    for (const x of [180, 560, 1100, 1320, 1560, 2120]) S_(x, G - 18, 24, 18, 'cover');
-    this.covers = this.solids.filter((q) => q.kind === 'cover');
 
     // tiers sit about 65px apart so a jump plus double jump reaches the next one
     P_(40, 335, 60, 'fire'); P_(40, 270, 56, 'fire'); P_(40, 205, 52, 'fire');
@@ -107,7 +102,6 @@ const Level = {
         b.x += sx;
         const l = b.x - b.w / 2, r = b.x + b.w / 2, t = b.y - b.h, bt = b.y;
         for (const s of solids) {
-          if (opt.ghostCover && s.kind === 'cover') continue;
           if (r > s.x && l < s.x + s.w && bt > s.y && t < s.y + s.h) {
             // step up small lips (car hoods, kerbs)
             if (opt.step && b.onGround && s.y > bt - opt.step && this.rectFree(b.x - b.w / 2, s.y - b.h - 0.01, b.w, b.h)) {
@@ -129,8 +123,6 @@ const Level = {
         b.y += sy;
         const l = b.x - b.w / 2, r = b.x + b.w / 2, t = b.y - b.h, bt = b.y;
         for (const s of solids) {
-          // cover stands on the street, so it is never a ceiling: a body inside it rising leaves through the top
-          if (sy < 0 && s.kind === 'cover') continue;
           if (r > s.x && l < s.x + s.w && bt > s.y && t < s.y + s.h) {
             if (sy > 0) { b.y = s.y; c.ground = true; c.landed = s; } else { b.y = s.y + s.h + b.h; c.ceil = true; }
             b.vy = 0;
@@ -167,19 +159,12 @@ const Level = {
   touchingWall(b, dir) {
     const x = dir > 0 ? b.x + b.w / 2 + 1 : b.x - b.w / 2 - 1;
     for (const s of this.solids) {
-      if (s.kind === 'car' || s.kind === 'carTop' || s.kind === 'barrier' || s.kind === 'cover' || s.kind === 'ceiling') continue;
+      if (s.kind === 'car' || s.kind === 'carTop' || s.kind === 'ceiling') continue;
       if (x > s.x && x < s.x + s.w && b.y - 2 > s.y && b.y - b.h + 2 < s.y + s.h) return true;
     }
     return false;
   },
   raycast(x0, y0, x1, y1) { return rayRects(x0, y0, x1, y1, this.solids); },
-  // Flash-steps (dashes, drawn slashes) pass over low cover, so their reach ignores it.
-  raycastBody(x0, y0, x1, y1) { return rayRects(x0, y0, x1, y1, this.bodySolids || (this.bodySolids = this.solids.filter((q) => q.kind !== 'cover'))); },
-  coverAhead(b, dir) {
-    const x = dir > 0 ? b.x + b.w / 2 + 1 : b.x - b.w / 2 - 1;
-    for (const s of this.covers) if (x >= s.x && x < s.x + s.w && b.y > s.y && b.y - b.h < s.y + s.h) return s;
-    return null;
-  },
   // Nearest x where a body of width w can stand on the street without overlapping a solid.
   freeGroundX(x, w = 10) {
     for (let d = 0; d < 300; d += 6) {
@@ -389,11 +374,7 @@ const Level = {
     for (const s of this.solids) if (s.kind === 'wall') this.paintBuilding(g, s, R);
     this.paintGround(g, R);
     for (const p of this.platforms) this.paintPlatform(g, p, R);
-    for (const s of this.solids) {
-      if (s.kind === 'car') this.paintCar(g, s, R);
-      if (s.kind === 'barrier') this.paintBarrier(g, s);
-      if (s.kind === 'cover') this.paintCover(g, s);
-    }
+    for (const s of this.solids) if (s.kind === 'car') this.paintCar(g, s, R);
     // street lamps
     for (const l of this.lamps) {
       g.fillStyle = '#26222c'; g.fillRect(l.x, G - 62, 2, 62);
@@ -645,40 +626,6 @@ const Level = {
     g.fillStyle = '#c8b070'; g.fillRect(x + w - 2, y + 2, 2, 2);
     g.fillStyle = '#601818'; g.fillRect(x, y + 2, 2, 2);
   },
-  paintBarrier(g, s) {
-    g.fillStyle = '#6a6270'; g.fillRect(s.x + 2, s.y, s.w - 4, s.h);
-    g.fillRect(s.x, s.y + 4, s.w, s.h - 4);
-    g.fillStyle = '#c8a040';
-    for (let i = 2; i < s.w - 2; i += 6) pline(g, s.x + i, s.y + 6, s.x + i + 3, s.y + 2, 1);
-    g.fillStyle = '#4a4252'; g.fillRect(s.x, s.y + s.h - 2, s.w, 2);
-  },
-
-  paintCover(g, s) {
-    const { x, y, w, h } = s;
-    // dark outline so it reads against any backdrop
-    g.fillStyle = '#0b0910'; g.fillRect(x - 1, y + 2, w + 2, h - 2); g.fillRect(x + 2, y - 1, w - 4, 4);
-    // jersey profile: narrow top, flared base
-    g.fillStyle = '#9a94a6'; g.fillRect(x + 3, y, w - 6, 6);
-    g.fillStyle = '#8a8496'; g.fillRect(x + 1, y + 5, w - 2, 5);
-    g.fillStyle = '#7a7486'; g.fillRect(x, y + 10, w, h - 10);
-    g.fillStyle = '#d6d0e0'; g.fillRect(x + 3, y, w - 6, 1);
-    g.fillStyle = '#b8b2c4'; g.fillRect(x + 1, y + 5, 2, 1); g.fillRect(x + w - 3, y + 5, 2, 1);
-    // hazard band
-    for (let i = 0; i < w; i++) {
-      for (let j = 0; j < 4; j++) {
-        g.fillStyle = ((i + j) >> 2) % 2 ? '#f0c030' : '#1a1418';
-        g.fillRect(x + i, y + 10 + j, 1, 1);
-      }
-    }
-    g.fillStyle = '#ffe070'; g.fillRect(x, y + 10, w, 1);
-    // reflectors and a chipped corner
-    g.fillStyle = '#ff3048'; g.fillRect(x + 4, y + 7, 2, 1); g.fillRect(x + w - 6, y + 7, 2, 1);
-    g.fillStyle = '#5a5466'; g.fillRect(x, y + h - 2, w, 2);
-    g.fillStyle = '#3a3442'; g.fillRect(x + w - 5, y + 1, 2, 2);
-    // beacon housing
-    g.fillStyle = '#2a2430'; g.fillRect(x + w / 2 - 2, y - 3, 4, 3);
-  },
-
   // ---------- per-frame drawing ----------
   drawBackground(ctx, cx, cy, t) {
     ctx.drawImage(this.layers.sky, 0, 0);
@@ -743,23 +690,7 @@ const Level = {
       if (Math.random() < 0.3) FX.embers(f.x, f.y - 16, 1);
     }
   },
-  // Cover beacons sit on top of the lighting so the barriers stay easy to spot.
-  drawEmissive(ctx, cx, cy, t) {
-    for (const s of this.covers) {
-      const x = Math.round(s.x + s.w / 2 - cx), y = Math.round(s.y - cy);
-      if (x < -20 || x > VIEW_W + 20 || y < -20 || y > VIEW_H + 20) continue;
-      const on = Math.sin(t * 5 + s.x * 0.01) > -0.2;
-      ctx.fillStyle = on ? '#ffb030' : '#6a4010'; ctx.fillRect(x - 1, y - 4, 2, 2);
-      if (on) { ctx.fillStyle = '#fff0b0'; ctx.fillRect(x - 1, y - 4, 1, 1); }
-      ctx.fillStyle = '#ffe070';
-      for (let i = 0; i < s.w; i += 2) ctx.fillRect(Math.round(s.x - cx) + i, y + 10, 1, 1);
-    }
-  },
   addLights(cx, cy, t) {
-    for (const s of this.covers) {
-      const on = Math.sin(t * 5 + s.x * 0.01) > -0.2;
-      FX.frameLight(s.x + s.w / 2, s.y + 6, 34, '#ffc060', on ? 0.6 : 0.35);
-    }
     for (const l of this.lamps) {
       if (Game.mod('blackout')) continue;
       const on = !l.flick || Math.sin(t * 13 + l.x) > -0.6 || Math.random() < 0.5;

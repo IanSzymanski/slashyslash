@@ -78,7 +78,6 @@ const Render = {
     }
 
     // emissive layer
-    Level.drawEmissive(ctx, cx, cy, t);
     for (const e of G.enemies) if (!e.dead) e.drawEmissive(ctx, cx, cy);
     for (const h of G.hazards) h.drawEmissive(ctx, cx, cy);
     for (const pk of G.pickups) pk.drawEmissive(ctx, cx, cy);
@@ -97,7 +96,7 @@ const Render = {
       FX.flashA = Math.max(0, FX.flashA - realDt * 6);
     }
     const C = G.cine;
-    if (C && C.zoom > 1 && C.focus) this.zoomTo(ctx, C.focus.x - cx, C.focus.y - 12 - cy, C.zoom);
+    if (C && C.zoom > 1 && C.focus) this.zoomTo(ctx, C.focus.x - cx, C.focus.y - 12 - cy + (C.zoomOY || 0), C.zoom);
     ctx.drawImage(this.vignette, 0, 0);
     const inGame = G.player && (G.state === 'playing' || G.state === 'paused' || G.state === 'over' || G.state === 'pick');
     if (inGame && !G.cineActive()) this.drawHUD(ctx, realDt);
@@ -130,15 +129,66 @@ const Render = {
       drawText(ctx, cap.text, VIEW_W / 2, VIEW_H - bh + 7, { align: 'center', color: cap.color || '#ffffff', scale: 2 });
       if (cap.sub) drawText(ctx, cap.sub, VIEW_W / 2, VIEW_H - bh + 20, { align: 'center', color: '#9a8aa8' });
     }
-    if (C.big) {
+    if (C.big && C.big.style === 'title') this.drawTitleCard(ctx, C.big, C.bigT);
+    else if (C.big) {
       const bt = C.bigT, sc = bt < 0.08 ? 9 : bt < 0.16 ? 7 : 6;
       const shake = bt < 0.3 ? Math.round((Math.random() - 0.5) * 4 * (1 - bt / 0.3)) : 0;
       drawText(ctx, C.big.text, VIEW_W / 2 + shake, VIEW_H / 2 - sc * 3 + shake, { align: 'center', color: C.big.color || '#ffd070', scale: sc, outline: '#0b0910' });
       if (C.big.sub && bt > 0.5) drawText(ctx, C.big.sub, VIEW_W / 2, VIEW_H / 2 + sc * 3 + 6, { align: 'center', color: '#e8d8e0', outline: '#0b0910' });
     }
   },
-  // Speed lines converging on the tethered grenade, a closing reticle, and where the slash will send it.
+  // A boss title: rules wipe out from the centre, the name slams in above the close-up, then the subtitle.
+  drawTitleCard(ctx, B, bt) {
+    const y = 52, col = B.color || '#4af0ff', cxm = VIEW_W / 2;
+    const w = Math.round(easeOutCubic(clamp(bt / 0.22, 0, 1)) * 150);
+    ctx.fillStyle = col;
+    ctx.fillRect(cxm - w, y - 9, w * 2, 1); ctx.fillRect(cxm - w, y + 40, w * 2, 1);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(cxm - w - 1, y - 11, 1, 5); ctx.fillRect(cxm + w, y - 11, 1, 5);
+    ctx.fillRect(cxm - w - 1, y + 38, 1, 5); ctx.fillRect(cxm + w, y + 38, 1, 5);
+    if (B.tag && bt > 0.1) drawText(ctx, B.tag, cxm, y - 19, { align: 'center', color: '#7a9aa6' });
+    if (bt > 0.12) {
+      const t2 = bt - 0.12, sc = t2 < 0.05 ? 8 : 6;
+      const shake = t2 < 0.25 ? Math.round((Math.random() - 0.5) * 4 * (1 - t2 / 0.25)) : 0;
+      drawText(ctx, B.text, cxm + shake, y + (6 - sc) * 2.5 + 3 + shake, { align: 'center', color: t2 < 0.08 ? '#ffffff' : col, scale: sc, outline: '#0b0910' });
+    }
+    if (B.sub && bt > 0.55) drawText(ctx, B.sub, cxm, y + 45, { align: 'center', color: '#e8d8e0', outline: '#0b0910' });
+  },
   drawBulletTime(ctx, cx, cy, k, t) {
+    if (Game.btKind === 'riposte' || Game.btKind === 'clash' || Game.btKind === 'peril') { this.drawParryCue(ctx, cx, cy, k, t); return; }
+    this.drawReboundCue(ctx, cx, cy, k, t);
+  },
+  // The rival's tell in bullet time: it glows gold (parry) or red (dash) and its eye gleams brighter until it
+  // flashes; act on the flash. A clash adds nothing here: the glint as it raises its guard is the tell.
+  drawParryCue(ctx, cx, cy, k, t) {
+    const r = Game.btOwner, p = Game.player, kind = Game.btKind;
+    if (kind === 'clash' || !r || r.dead || !p || p.dead) return;
+    const peril = kind === 'peril', col = peril ? PERIL_RED : '#ffd070';
+    if (r.spriteCopy && !(r.perilFlash > 0)) Sprite.outlined(ctx, r.spriteCopy, r.x - cx, r.y - cy, col, { glow: 0.45 * k });
+    const [pcx, pcy] = p.chest(), px = pcx - cx, py = pcy - cy;
+    // speed lines converging on you, where the blow will land
+    ctx.globalAlpha = 0.3 * k;
+    ctx.fillStyle = peril ? '#ffd0d4' : '#fff4d0';
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * TAU + Math.sin(i * 5.1) * 0.2, r0 = 40 + ((i * 29 + ((t * 260) | 0)) % 80), r1 = r0 + 22 + (i % 3) * 8;
+      pline(ctx, px + Math.cos(a) * r0, py + Math.sin(a) * r0, px + Math.cos(a) * r1, py + Math.sin(a) * r1, 1);
+    }
+    ctx.globalAlpha = 1;
+    // its path to you
+    const [rcx, rcy] = r.chest(), rx = rcx - cx, ry = rcy - cy, L = Math.hypot(px - rx, py - ry) || 1;
+    ctx.fillStyle = col;
+    for (let d = 10; d < L - 12; d += 5) ctx.fillRect(Math.round(rx + ((px - rx) * d) / L), Math.round(ry + ((py - ry) * d) / L), 1, 1);
+    // the eye gleams brighter and blinks faster as the flash nears; FX draws the flash itself
+    const q = r.cueProgress ? r.cueProgress() : 1;
+    if (q < 1) {
+      const [vx, vy] = r.visorPos(), ex = Math.round(vx - cx), ey = Math.round(vy - cy), sz = Math.round(1 + q * 3);
+      ctx.fillStyle = ((t * (8 + q * 16)) | 0) % 2 ? '#ffffff' : col;
+      ctx.fillRect(ex - sz, ey, sz * 2 + 1, 1);
+      ctx.fillRect(ex, ey - sz, 1, sz * 2 + 1);
+    }
+  },
+  // Speed lines converging on the tethered grenade, a closing reticle, and where the kick will send it.
+  drawReboundCue(ctx, cx, cy, k, t) {
     const p = Game.player, T = p && p.tether;
     if (!T || T.mode !== 'rebound' || !T.target) return;
     const g = T.target, gx = g.x - cx, gy = g.y - cy;
@@ -160,7 +210,6 @@ const Render = {
       ctx.fillStyle = d < 60 ? '#ffffff' : '#ffd070';
       ctx.fillRect(Math.round(gx + Math.cos(ang) * d), Math.round(gy + Math.sin(ang) * d), 1, 1);
     }
-    drawText(ctx, 'AIM THE SLASH', gx, gy + 14, { align: 'center', color: '#ffd070', outline: '#0b0910' });
   },
   gatherLights(cx, cy, t) {
     const G = Game;
@@ -301,6 +350,21 @@ const Render = {
       }
       drawText(ctx, 'PARRY', px + 7, y2 + 8, { color: afford ? '#7a849c' : '#5a4a4a' });
     }
+    // utility: fills as its cooldown runs down, flashes when pressed too early
+    const U = p.utility();
+    if (U) {
+      const ux = x + 88, uy = y2 + 10;
+      const k = p.utilCD > 0 ? 1 - p.utilCD / U.cooldown : 1;
+      const flash = p.utilFlash > 0 && ((t * 20) | 0) % 2;
+      ctx.fillStyle = '#0b0910'; this.diamond(ctx, ux, uy, 4);
+      ctx.fillStyle = flash ? '#ffffff' : k >= 1 ? '#ff3a52' : '#3a1a24'; this.diamond(ctx, ux, uy, 3);
+      if (k < 1) {
+        ctx.fillStyle = '#a01c30';
+        const hh = Math.round(k * 7);
+        for (let yy = 0; yy < hh; yy++) { const ry = uy + 3 - yy, half = 3 - Math.abs(ry - uy); if (half >= 0) ctx.fillRect(ux - half, ry, half * 2 + 1, 1); }
+      }
+      drawText(ctx, hudKey('utility') + ' ' + U.hud, ux + 7, y2 + 8, { color: k >= 1 ? '#7a849c' : '#5a4a5a' });
+    }
     // ultimate
     this.drawUltMeter(ctx, 22, VIEW_H - 22, p, t);
     // wave info
@@ -355,21 +419,6 @@ const Render = {
       ay += step;
     }
     if (S.visuals.indicators) this.drawIndicators(ctx);
-    if (G.mode === 'demo' && G.stats.time < 16 && !p.dead) {
-      const k = G.stats.time > 13 ? 1 - (G.stats.time - 13) / 3 : 1;
-      if (k > 0 && (k > 0.3 || ((t * 10) | 0) % 2)) {
-        const l1 = `${hudKey('left')}/${hudKey('right')} MOVE   ${hudKey('jump')} JUMP x2   ${hudKey('crouch')} SLIDE, x2 DROP   ${hudKey('dash')} DASH`;
-        const l2 = `${hudKey('attack')} SLASH   ${hudKey('dash')}+${hudKey('attack')} DASH SLASH   ${hudKey('crouch')}+${hudKey('attack')} PLUNGE   ${hudKey('sheathe')} PARRY`;
-        const l3 = `${hudKey('tether')} TAP FLING / HOLD ZIP / GRAB   HOLD ${hudKey('ultimate')} ULTIMATE`;
-        ctx.globalAlpha = Math.min(1, k);
-        ctx.fillStyle = 'rgba(8,5,12,0.6)';
-        ctx.fillRect(VIEW_W / 2 - 150, VIEW_H - 40, 300, 30);
-        drawText(ctx, l1, VIEW_W / 2, VIEW_H - 36, { align: 'center', color: '#e8d8e0' });
-        drawText(ctx, l2, VIEW_W / 2, VIEW_H - 27, { align: 'center', color: '#e8d8e0' });
-        drawText(ctx, l3, VIEW_W / 2, VIEW_H - 18, { align: 'center', color: '#ff8a9a' });
-        ctx.globalAlpha = 1;
-      }
-    }
     if (p.hp < 30 && !p.dead) {
       ctx.globalAlpha = 0.18 + Math.sin(t * 6) * 0.08;
       ctx.fillStyle = '#ff0020';
@@ -399,7 +448,7 @@ const Render = {
     if (active) drawText(ctx, 'SAW', cx, cy - 2, { align: 'center', color: '#ffffff' });
     else if (ready) {
       drawText(ctx, hudKey('ultimate').slice(0, 3), cx, cy - 2, { align: 'center', color: '#ffffff' });
-      drawText(ctx, 'HOLD ' + hudKey('ultimate') + ' - SAWBLADE', cx + 16, cy - 2, { color: ((t * 3) | 0) % 2 ? '#ff8a9a' : '#ffffff' });
+      drawText(ctx, 'SAWBLADE', cx + 16, cy - 2, { color: ((t * 3) | 0) % 2 ? '#ff8a9a' : '#ffffff' });
     } else {
       drawText(ctx, pct + '', cx, cy - 2, { align: 'center', color: '#9a8aa8' });
       drawText(ctx, 'SAWBLADE', cx + 16, cy - 2, { color: '#5a4a5a' });
@@ -419,10 +468,9 @@ const Render = {
       ctx.fillStyle = '#4af0ff';
       for (let i = 0; i < w; i += 2) if (((i + ((t * 20) | 0)) >> 1) % 3) ctx.fillRect(x + i, y, 1, 4);
       ctx.globalAlpha = 1;
-      drawText(ctx, b.cracks ? `SHIELD CRACKED ${b.cracks}/3 - RETURN BOLTS OR REBOUND THE GRENADE` : 'SHIELDED - REBOUND ITS GRENADE OR RETURN 3 BOLTS', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
+      drawText(ctx, b.cracks ? `SHIELD CRACKED ${b.cracks}/${SHIELD_CRACKS}` : 'SHIELDED', VIEW_W / 2, y + 7, { align: 'center', color: '#4af0ff' });
     } else if (b.stunT > 0) drawText(ctx, 'STUNNED', VIEW_W / 2, y + 7, { align: 'center', color: '#ffffff' });
-    else if (b.phase === 2) drawText(ctx, b.guardT > 0 ? 'GUARDING - BAIT THE RIPOSTE AND PARRY IT' : 'LIMITERS OFF - PARRY, THEN PARRY ITS RIPOSTE', VIEW_W / 2, y + 7, { align: 'center', color: '#ff8a9a' });
-    else drawText(ctx, 'SHIELD BACK IN ' + Math.ceil(b.shieldDownT), VIEW_W / 2, y + 7, { align: 'center', color: '#7a9aa6' });
+    else if (b.phase !== 2) drawText(ctx, 'SHIELD BACK IN ' + Math.ceil(b.shieldDownT), VIEW_W / 2, y + 7, { align: 'center', color: '#7a9aa6' });
   },
   drawIndicators(ctx) {
     const cam = Game.cam;

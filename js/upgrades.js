@@ -8,7 +8,7 @@ const UPGRADES = {
   voltHook: { name: 'Volt Hook', tag: 'VH', desc: 'Tether strikes burst for 30 damage around the target. Strikes no longer refund shield.' },
   emberWake: { name: 'Ember Wake', tag: 'EW', desc: 'Dashing through enemies cuts them for 20. Dash charges refill 0.25s slower.' },
   openGuard: { name: 'Open Guard', tag: 'OG', desc: 'Parry window 60% wider. Parries no longer refund shield.' },
-  breaker: { name: 'Breaker', tag: 'BR', desc: 'The combo finisher hits 60% harder and launches. The first two hits deal 20% less.' },
+  breaker: { name: 'Breaker', tag: 'BR', desc: 'Finishers (the lunge and the heavy slam) hit 60% harder and launch. Other lights deal 20% less.' },
   aftershock: { name: 'Aftershock', tag: 'AS', desc: 'Plunges send a ground wave each way. The impact itself deals 20% less.' },
   glass: { name: 'Glass Edge', tag: 'GE', desc: 'Deal 35% more damage. Take 25% more.' },
   bloodline: { name: 'Bloodline', tag: 'BL', desc: 'Every kill heals 2. Your shield starts recharging 1s later.' },
@@ -17,7 +17,7 @@ const UPGRADE_FIRST = 2, UPGRADE_EVERY = 3;
 
 const WAVE_MODIFIERS = {
   elite: { name: 'ELITES', desc: 'SOME ENEMIES ARE GILDED: TOUGHER AND WORTH DOUBLE' },
-  glints: { name: 'GLINTS ONLY', desc: 'NO ! MARKERS. WATCH FOR THE GLINT' },
+  glints: { name: 'GLINTS ONLY', desc: 'NO ! MARKERS' },
   lowgrav: { name: 'LOW GRAVITY', desc: 'EVERYONE FLOATS' },
   blackout: { name: 'BLACKOUT', desc: 'THE STREET LIGHTS ARE OUT' },
 };
@@ -36,10 +36,10 @@ function makeElite(e) {
   e.def = Object.assign({}, e.def, { score: e.def.score * 2 });
 }
 
-// Aftershock: a friendly wave that runs along the floor and hits each enemy once.
+// Aftershock and the heavy slam: a friendly wave that runs along the floor and hits each enemy once.
 class FriendlyWave {
-  constructor(x, y, dir, speed, dmg) {
-    this.x = x; this.y = y; this.dir = dir; this.speed = speed; this.dmg = dmg;
+  constructor(x, y, dir, speed, dmg, o = {}) {
+    this.x = x; this.y = y; this.dir = dir; this.speed = speed; this.dmg = dmg; this.cause = o.cause || 'plunge';
     this.t = 0; this.dur = 0.6; this.dead = false; this.hit = new Set();
   }
   update(dt) {
@@ -51,7 +51,7 @@ class FriendlyWave {
       if (e.dead || e.spawning || this.hit.has(e)) continue;
       if (Math.abs(e.x - this.x) < 8 + e.w / 2 && e.y > this.y - 8 && e.y < this.y + 4) {
         this.hit.add(e);
-        hurtEnemy(e, this.dmg, { kx: this.dir * 140, ky: -220, cause: 'plunge', angle: -Math.PI / 2, stagger: 0.5, hitstop: 0.01 });
+        hurtEnemy(e, this.dmg, { kx: this.dir * 140, ky: -220, cause: this.cause, heavyAtk: this.cause === 'heavy', angle: -Math.PI / 2, stagger: 0.5, hitstop: 0.01 });
       }
     }
   }

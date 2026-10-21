@@ -23,7 +23,7 @@ const seconds = Number(process.argv[2] || 90);
       const problems = [];
       S.gameplay.invincible = true;
       S.enemies.waveBreak = 1;
-      const codes = ['KeyA', 'KeyD', 'KeyW', 'KeyS', 'ShiftLeft', 'Mouse0', 'KeyE', 'Mouse2', 'KeyR'];
+      const codes = ['KeyA', 'KeyD', 'KeyW', 'KeyS', 'ShiftLeft', 'Mouse0', 'KeyE', 'Mouse2', 'KeyR', 'KeyF'];
       for (let f = 0; f < frames; f++) {
         for (const c of codes) {
           const held = Input.down.has(c);

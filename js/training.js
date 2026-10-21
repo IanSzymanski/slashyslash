@@ -83,8 +83,6 @@ const Training = {
     const e = new Enemy(type, q.x, q.y, { hp: 1, dmg: 1 });
     Game.enemies.push(e);
     Sound.play('spawn');
-    const hint = ENEMY_HINTS[type];
-    if (hint) Game.announce(hint[0], hint[1], '#ffd070', 3, true);
   },
   spawnRival(phase2) {
     const p = Game.player;
