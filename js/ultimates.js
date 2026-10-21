@@ -110,7 +110,7 @@ registerUltimate({
       }
     }
     const pvx = p.vx, pvy = p.vy;
-    const col = Level.moveBody(p, dt, { step: 11, ghostCover: p.dashT > 0 || p.zipping() || p.rebounding() });
+    const col = Level.moveBody(p, dt, { step: 11 });
     if ((col.wallL || col.wallR) && Math.abs(pvx) > 160 && !p.zipping()) {
       p.vx = -pvx * 0.45;
       FX.sparks(p.x + (col.wallR ? 6 : -6), p.cy, 10, col.wallR ? Math.PI : 0, 1.6, 60, 220);

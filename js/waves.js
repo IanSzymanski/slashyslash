@@ -136,6 +136,8 @@ const Director = {
     const x = Level.freeGroundX(clamp(p.x < Level.W / 2 ? p.x + 300 : p.x - 300, 120, Level.W - 120), 12);
     const r = new Rival(x, Level.GROUND, this.scale);
     if (this.mode === 'duel') r.startDuel();
+    // the entry cutscene plays except on duel retries, which go straight to the fight
+    if (!(this.mode === 'duel' && (Game.runs.duel || 0) > 1)) r.cinematicIntro();
     Game.enemies.push(r);
     Sound.play('spawn');
   },

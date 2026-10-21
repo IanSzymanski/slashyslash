@@ -198,7 +198,7 @@ class Enemy {
         if (this.cd <= 0 && adx < 280 && !p.dead && this.onGround && clear) {
           this.setState('aim'); this.aim = toP; this.blockedT = 0; this.seekX = undefined; Sound.play('enemyWindup', { pm: 0.7 });
         } else if (this.cd <= 0 && adx < 280 && !p.dead && !clear) {
-          // blocked by cover or a ledge: find a spot with a clear shot, or hop up for one
+          // blocked by a car or a ledge: find a spot with a clear shot, or hop up for one
           this.blockedT = (this.blockedT || 0) + dt;
           if (this.blockedT > 1.5 && this.seekX === undefined) { this.blockedT = 0; this.findFiringSpot(p); }
         }
@@ -224,7 +224,7 @@ class Enemy {
         break;
     }
   }
-  // Flank: look for a spot near the player (own side first, then across the cover) with a clear shot.
+  // Flank: look for a spot near the player (own side first, then the far side) with a clear shot.
   findFiringSpot(p) {
     const side = sign(this.x - p.x) || 1;
     let best = null;
@@ -541,7 +541,7 @@ function killEnemy(e, o) {
   e.render(g);
   const img = Sprite.snapshot();
   const cx = e.x, cy = e.cy;
-  const cut = ['slash', 'iaido', 'saw', 'tether', 'plunge', 'chain', 'groundcut'].includes(o.cause);
+  const cut = ['slash', 'heavy', 'iaido', 'saw', 'tether', 'plunge', 'chain', 'groundcut'].includes(o.cause);
   const ang = o.angle !== undefined ? o.angle : rand(0, TAU);
   const base = ((o.kx || 0) * 0.35) / e.mass;
   const nx = Math.cos(ang + Math.PI / 2), ny = Math.sin(ang + Math.PI / 2);

@@ -5,7 +5,8 @@
 // and a pulse grenade that must be tethered and slashed back to break the shield.
 // At half health it blasts the player away and enrages in a short cutscene.
 // Phase 2: shield and ranged weapons go offline and it fights in melee combos. Parry one of its
-// attacks and it guards against your counter, parries it and ripostes; parry the riposte to stun it.
+// attacks and it guards; it also raises guards of its own. Swing into a guard and it parries and
+// ripostes in bullet time; parry the riposte to stun it.
 // The last hit plays a slow-motion knockout cutscene and leaves it lying in the street.
 // Its character definition lives in CHARACTERS so it can be made playable once unlocked.
 
@@ -18,8 +19,9 @@ const AEGIS_PAL_P2 = Object.assign({}, AEGIS_PAL, { visor: '#ffffff', core: '#ff
 const AEGIS_PAL_KO = Object.assign({}, AEGIS_PAL, { visor: '#1a2a34', core: '#22303a', edge: '#3a4a5a', scarf: '#2a6a74' });
 
 const CHARACTERS = {
-  ronin: { id: 'ronin', name: 'RONIN', pal: PCOL, weapon: 'katana', unlocked: () => true },
-  aegis: { id: 'aegis', name: 'AEGIS-07', pal: AEGIS_PAL, weapon: 'greatblade', unlocked: () => !!SaveData.unlocks.aegis },
+  // utility: the F ability (js/utilities.js); AEGIS-07 gets its own when it becomes playable
+  ronin: { id: 'ronin', name: 'RONIN', pal: PCOL, weapon: 'katana', utility: 'overload', unlocked: () => true },
+  aegis: { id: 'aegis', name: 'AEGIS-07', pal: AEGIS_PAL, weapon: 'greatblade', utility: null, unlocked: () => !!SaveData.unlocks.aegis },
 };
 
 ENEMY_DEFS.aegis = { hp: 900, w: 8, h: 20, speed: 145, score: 5000, mass: 6, dmg: 5, debris: ['#3c4760', '#7a8aa6', '#1c2130', '#4af0ff'] };
@@ -27,6 +29,8 @@ ENEMY_BASE_STATE.aegis = 'fight';
 
 const BOLT_CYAN = { outer: '#2ab8d8', core: '#e0ffff', light: '#4af0ff' };
 const GRENADE_G = 600;
+// time scale of the bullet time that plays while its riposte winds up
+const RIPOSTE_BT_SCALE = 0.7;
 
 // Greatblade moves. wind = telegraph before the swing; swing = active time.
 const RIVAL_MOVES = {
@@ -63,11 +67,14 @@ class Rival extends Enemy {
     this.act = null; this.hover = false; this.beam = null; this.grenade = null; this.beamLoop = null;
     this.dodged = new WeakSet(); this.dying = false; this.dyingT = 0; this.boomT = 0;
     this.kite = chance(0.5) ? 1 : -1;
-    this.riseV = 0; this.ko = null; this.koT = 0;
+    this.riseV = 0; this.ko = null; this.koT = 0; this.intro = null;
+    this.cds.guard = 2;
   }
 
   // Melee duel test mode: full health, and the enrage cutscene plays as soon as it lands.
   startDuel() { this.duel = true; }
+  // Entry cutscene: the street rumbles, a beacon of energy erupts, it kneels inside it, stands, and its title hits.
+  cinematicIntro() { this.intro = { t: 0, ct: 0, stage: 'gather', done: {}, started: false }; this.facing = sign(Game.player.x - this.x) || -1; }
 
   // ---------- damage hooks used by hurtEnemy ----------
   shielded() { return this.shield && !this.dying; }
@@ -125,7 +132,7 @@ class Rival extends Enemy {
     this.shield = true; this.cracks = 0;
     FX.ring(this.x, this.cy, 30, 6, 0.4, { c: '#4af0ff', core: '#ffffff', w: 1 });
     Sound.play('shieldUp');
-    Game.announce('SHIELD RESTORED', 'TETHER ITS GRENADE, SLASH IT BACK', '#4af0ff', 1.3, true);
+    Game.announce('SHIELD RESTORED', 'TETHER ITS GRENADE, KICK IT BACK', '#4af0ff', 1.3, true);
   }
   pulseHit() {
     if (this.dying || this.transT > 0) return;
@@ -150,18 +157,33 @@ class Rival extends Enemy {
         Game.announce('STAGGERED', 'PUNISH IT', '#ffd070', 1.4);
         return;
       }
-      // it raises a guard, ready to parry whatever you throw next
-      this.attack = null; this.lungeT = 0;
-      this.act = { kind: 'guard', t: 0 };
-      this.guardT = 1.4;
+      // blades lock and it raises a guard, ready to parry whatever you throw next
+      this.raiseGuard(1.4, 'clash');
       this.vx += kx / 4;
-      FX.ring(this.x, this.cy, 22, 12, 0.25, { c: '#4af0ff', core: '#ffffff', w: 1 });
-      Sound.play('guardUp');
       return;
     }
     this.flinchT = 0.7; this.hurtT = 0.7;
     this.act = null; this.attack = null; this.hover = false; this.beam = null; this.lungeT = 0;
     this.vx += kx / 3;
+  }
+  // Phase 2 guard: anything swung into it is parried and answered with a riposte.
+  // why: 'clash' (you parried its swing), 'read' (it saw your attack coming), 'stance' (it waits for you to commit).
+  raiseGuard(dur, why) {
+    this.attack = null; this.lungeT = 0;
+    this.act = { kind: 'guard', t: 0, why };
+    this.guardT = dur;
+    this.facing = sign(Game.player.x - this.x) || this.facing;
+    const [cx, cy] = this.chest();
+    FX.ring(cx, cy, 22, 12, 0.25, { c: '#4af0ff', core: '#ffffff', w: 1 });
+    FX.light(cx, cy, 60, '#4af0ff', 0.9, 0.3);
+    Sound.play('guardUp');
+    if (why === 'clash') { Sound.play('clash'); Game.bulletTime(0.3, { kind: 'clash', scale: 0.3, owner: this }); }
+  }
+  // 0..1 through the riposte wind-up, timed so the cue ring closes just before the blade lands.
+  riposteCue() {
+    const a = this.act;
+    if (!a || a.move !== 'riposte' || a.phase !== 'wind') return 1;
+    return clamp(a.t / Math.max(0.05, this.tele(a.m.wind) - 0.04), 0, 1);
   }
   parryPlayer(o) {
     this.guardT = 0; this.parryInvulnT = 0.45;
@@ -173,11 +195,14 @@ class Rival extends Enemy {
     FX.text('PARRIED', this.x, this.y - 34, { c: '#4af0ff', always: true, dur: 0.8, vy: -24 });
     Sound.play('parry');
     Game.hitstop(0.06);
-    Game.slowmo(0.4, 0.3);
     Game.shake(0.2);
     if (!p.dead) { p.vx = sign(p.x - this.x || 1) * 170; p.vy = Math.min(p.vy, -80); }
     this.startMove('riposte', null);
-    Game.announce('COUNTERED', 'PARRY ITS RIPOSTE', '#4af0ff', 1.0, true);
+    // the world drains to grey, it glows gold, and a ring closes on you: parry as the ring closes
+    const real = this.tele(RIVAL_MOVES.riposte.wind) / RIPOSTE_BT_SCALE;
+    Game.bulletTime(real + 0.2, { kind: 'riposte', scale: RIPOSTE_BT_SCALE, owner: this });
+    Sound.play('riposteCue', { dur: real + 0.06 });
+    Game.announce('COUNTERED', 'PARRY AS THE RING CLOSES', '#ffd070', 1.0, true);
   }
   windingUp() {
     const a = this.act;
@@ -200,9 +225,9 @@ class Rival extends Enemy {
     this.t += dt; this.animT += dt; this.st += dt;
     this.hitFlash = Math.max(0, this.hitFlash - dt);
     if (this.spawning) {
+      if (this.intro) { this.updateIntro(dt); return; }
       this.spawnT -= dt;
       if (this.spawnT <= 0) {
-        this.spawning = false;
         FX.ring(this.x, this.y - 2, 3, 46, 0.4, { sy: 0.35, c: '#4af0ff', core: '#ffffff', w: 2 });
         FX.sparks(this.x, this.cy, 30, -Math.PI / 2, TAU, 60, 260, { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a' });
         FX.dust(this.x, this.y, 14, { smax: 90 });
@@ -210,14 +235,16 @@ class Rival extends Enemy {
         Sound.play('shockwave', { power: 0.8 });
         Sound.play('bossRoar');
         Game.shake(0.45);
-        if (!this.duel) Game.announce(this.name, 'TETHER ITS GRENADE, SLASH IT BACK', '#4af0ff', 2.6);
-        this.act = { kind: 'intro', t: 0 };
+        this.arrive(true);
       }
       return;
     }
     for (const k in this.cds) this.cds[k] -= dt * (k === 'dash' || k === 'zip' ? 1 : S.enemies.aggression);
     for (const k of ['flinchT', 'hurtT', 'spinT', 'postPose', 'dodgeT', 'jumpCD', 'deflectT', 'guardT', 'parryInvulnT', 'transT']) if (this[k] > 0) this[k] = Math.max(0, this[k] - dt);
     if (this.dashCharges < 2) { this.dashRecharge += dt; if (this.dashRecharge >= 1.2) { this.dashCharges++; this.dashRecharge = 0; } }
+    // the riposte's bullet time lasts exactly as long as its wind-up
+    const a0 = this.act;
+    if (Game.btOwner === this && Game.btKind === 'riposte' && !(a0 && a0.move === 'riposte' && a0.phase === 'wind')) Game.endBulletTime();
     if (this.dropThrough) { this.dropT -= dt; if (this.dropT <= 0) this.dropThrough = false; }
     if (this.grenade && this.grenade.dead) { this.grenade = null; this.cds.grenade = rand(6, 9); }
     // the beam hum follows the beam, so it can never outlive it
@@ -361,6 +388,8 @@ class Rival extends Enemy {
     if (p.dead) return;
     if (this.phase === 2) {
       if (this.cds.combo <= 0 && Math.abs(dy) < 40 && adx < 150) {
+        // sometimes it opens with a guard and waits for you to swing into it
+        if (adx < 120 && this.cds.guard <= 0 && chance(0.3)) { this.raiseGuard(rand(1.3, 1.8), 'stance'); this.cds.guard = rand(5, 8); return; }
         const options = adx > 80 ? RIVAL_COMBOS.filter((c) => c[0] === 'thrust') : RIVAL_COMBOS;
         const combo = pick(options);
         this.startMove(combo[0], { list: combo, i: 0 });
@@ -387,11 +416,14 @@ class Rival extends Enemy {
         if (a.t > 1.1) this.act = null;
         return { mx: 0 };
       case 'enrage': return this.runEnrage(dt, a, p);
-      case 'guard':
+      case 'guard': {
         this.facing = sign(p.x - this.x) || this.facing;
         if (Math.random() < 0.4) FX.sparks(this.x + this.facing * 8, this.y - 13, 1, -Math.PI / 2, 1.5, 20, 60, { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a', g: 0 });
-        if (this.guardT <= 0) { this.act = null; this.cds.combo = 0.2; }
-        return { mx: 0 };
+        // waiting it out works: the guard drops and it attacks straight away
+        if (this.guardT <= 0) { this.act = null; this.cds.combo = a.why === 'stance' ? 0 : 0.2; }
+        const creep = a.why === 'stance' && Math.abs(p.x - this.x) > 40;
+        return { mx: creep ? sign(p.x - this.x) * 0.3 : 0 };
+      }
       case 'recover':
         if (a.t > a.dur) this.act = null;
         return { mx: 0 };
@@ -455,6 +487,7 @@ class Rival extends Enemy {
       }
       if (a.t >= wind) {
         a.phase = 'swing'; a.t = 0; a.hit = false; a.quaked = false;
+        if (a.move === 'riposte' && Game.btOwner === this) Game.endBulletTime();
         let ang = this.aimAngle, dir = this.facing;
         if (m.spin) ang = -Math.PI / 2;
         if (m.rising) dir = -this.facing;
@@ -564,14 +597,17 @@ class Rival extends Enemy {
     return { mx: mx * speedMul, jump, drop };
   }
   react(p) {
-    // with the shield down it dodges incoming swings like a player would
+    // with the shield down it answers incoming swings like a player would
     // only while idle or approaching: its recovery is your punish window, so it never rolls out of it
-    if (this.shield || this.dashCharges <= 0 || this.act || this.cds.dodge > 0) return;
+    if (this.shield || this.act || this.cds.dodge > 0) return;
     const threat = p.attack || p.iaido;
-    if (threat && !this.dodged.has(threat) && dist(p.x, p.y, this.x, this.y) < 64) {
-      this.dodged.add(threat);
-      if (chance(this.phase === 2 ? 0.3 : 0.4)) { this.dash(-sign(p.x - this.x) || 1, -0.3); this.cds.dodge = 2.5; }
-    }
+    if (!threat || this.dodged.has(threat) || dist(p.x, p.y, this.x, this.y) >= 70) return;
+    this.dodged.add(threat);
+    const r = Math.random();
+    // phase 2 reads attacks, heavies most of all, and blocks them to start the riposte exchange
+    const block = this.phase === 2 && this.cds.guard <= 0 ? (threat.heavy || (threat.cfg && threat.cfg.heavy) ? 0.55 : 0.25) : 0;
+    if (r < block) { this.raiseGuard(0.6, 'read'); this.cds.guard = rand(3, 5); this.cds.dodge = 1.5; return; }
+    if (this.dashCharges > 0 && r < block + (this.phase === 2 ? 0.25 : 0.4)) { this.dash(-sign(p.x - this.x) || 1, -0.3); this.cds.dodge = 2.5; }
   }
   dash(dx, dy) {
     const l = Math.hypot(dx, dy) || 1;
@@ -630,7 +666,7 @@ class Rival extends Enemy {
       }
       if (intent.drop && this.onGround) { this.dropThrough = true; this.dropT = 0.22; this.vy = 40; this.onGround = false; }
     }
-    Level.moveBody(this, dt, { step: 11, ghostCover: this.dashT > 0 || this.lungeT > 0 || !!this.tether });
+    Level.moveBody(this, dt, { step: 11 });
     if (this.onGround) {
       this.airJumps = 1;
       if (!wasGround && preVy > 220) { FX.dust(this.x, this.y, 4, { smax: 40 }); this.landSquash = 0.12; }
@@ -639,6 +675,155 @@ class Rival extends Enemy {
     if (this.landSquash > 0) this.landSquash -= dt;
     if (this.x < 44) this.x = 44;
     if (this.x > Level.W - 44) this.x = Level.W - 44;
+  }
+
+  // ---------- entry ----------
+  // From here it fights. quick: the short beam drop (training, duel retries); otherwise the cutscene showed the title.
+  arrive(quick) {
+    this.spawning = false;
+    if (!this.duel && !this.trainP2) {
+      if (quick) Game.announce(this.name, 'TETHER ITS GRENADE, KICK IT BACK', '#4af0ff', 2.6);
+      else Game.announce('TETHER ITS GRENADE', 'THEN KICK IT BACK INTO AEGIS', '#4af0ff', 2.6, true);
+    }
+    this.act = { kind: 'intro', t: quick ? 0 : 0.6 };
+  }
+  updateIntro(dt) {
+    const I = this.intro, p = Game.player;
+    if (!I.started) {
+      I.started = true;
+      if (!p.dead) Game.startCine({ kind: 'rivalIntro', focus: this, owner: this, camOY: -26 });
+    }
+    const C = Game.cine, own = C && C.owner === this;
+    I.t += dt;
+    const ct = (I.ct = own ? C.t : I.t);
+    const once = (k) => (I.done[k] ? false : (I.done[k] = true));
+    const x = this.x, gy = this.y, CY = { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a' };
+    const grit = ['#4a4252', '#5c5464', '#3a3442', '#6e6678'];
+    this.facing = sign(p.x - this.x) || this.facing;
+    if (ct < 0.75) {
+      I.stage = 'gather';
+      if (once('rumble')) { Sound.play('beaconRumble'); FX.decal('crack', x, gy, { len: 14, n: 6, dur: 14 }); }
+      // energy crawls in along the street and motes rise off the cracks
+      if (Math.random() < 0.8) {
+        const s = chance(0.5) ? 1 : -1, d = rand(24, 70);
+        FX.sparks(x + s * d, gy - 1, 1, s > 0 ? Math.PI : 0, 0.2, d * 1.6, d * 2, Object.assign({ g: 0, life: 1.6 }, CY));
+      }
+      if (Math.random() < 0.5) FX.sparks(x + rand(-8, 8), gy - 1, 1, -Math.PI / 2, 0.4, 30, 90, Object.assign({ g: -40, life: 1.4 }, CY));
+      if (Math.random() < 0.15) FX.debris(x + rand(-20, 20), gy - 1, 1, grit, 60);
+      Game.shake(0.012 + ct * 0.02);
+    } else if (ct < 2.0) {
+      I.stage = 'erupt';
+      if (once('erupt')) {
+        Sound.play('beaconErupt');
+        FX.flash('#bff8ff', 0.55);
+        FX.ring(x, gy - 1, 4, 120, 0.6, { sy: 0.3, c: '#4af0ff', core: '#ffffff', w: 2 });
+        FX.ring(x, gy - 1, 3, 70, 0.45, { sy: 0.3, c: '#ffffff', core: '#bff8ff', w: 1 });
+        FX.debris(x, gy - 1, 34, grit, 340);
+        FX.dust(x, gy, 26, { smin: 60, smax: 220, rise: 10, r1: 7 });
+        FX.decal('crack', x, gy, { len: 32, n: 9, dur: 14 });
+        FX.sparks(x, gy - 10, 50, -Math.PI / 2, 1.2, 120, 440, CY);
+        FX.light(x, gy - 60, 260, '#4af0ff', 1, 0.8);
+        Game.shake(0.75);
+      }
+      if (Math.random() < 0.9) FX.sparks(x + rand(-7, 7), gy - rand(0, 120), 1, -Math.PI / 2, 0.3, 120, 300, Object.assign({ g: -100 }, CY));
+      if (Math.random() < 0.25) {
+        const yy = gy - rand(10, 130), s = chance(0.5) ? 1 : -1;
+        FX.bolt(x + s * 8, yy, x + s * rand(24, 50), yy + rand(-20, 20), 0.08, { outer: '#2ab8d8', core: '#ffffff', jag: 6 });
+      }
+      if (Math.random() < 0.3) FX.debris(x + rand(-14, 14), gy - 1, 1, grit, 200);
+      if ((I.pulse = (I.pulse || 0) - dt) <= 0) { I.pulse = 0.32; FX.ring(x, gy - 1, 6, 50, 0.35, { sy: 0.3, c: '#4af0ff', core: '#ffffff', w: 1 }); }
+      Game.shake(0.025);
+    } else if (ct < 2.55) {
+      I.stage = 'emerge';
+      if (once('emerge')) Sound.play('enrageCharge');
+      if (Math.random() < 0.6) FX.sparks(x + rand(-5, 5), gy - rand(0, 24), 1, -Math.PI / 2, 0.5, 60, 160, Object.assign({ g: -60 }, CY));
+    } else if (ct < 3.1) {
+      I.stage = 'rise';
+      if (once('reveal')) {
+        FX.ring(x, this.cy, 4, 70, 0.4, { c: '#4af0ff', core: '#ffffff', w: 2 });
+        FX.sparks(x, this.cy, 40, 0, TAU, 80, 300, CY);
+        FX.elec(x, this.cy, 26, 10, { outer: '#2ab8d8', core: '#ffffff' });
+        FX.flash('#ffffff', 0.4);
+        Sound.play('shockwave', { power: 0.6 });
+        Sound.play('shieldUp');
+        Game.shake(0.4);
+      }
+      if (ct >= 2.85 && once('visor')) {
+        const [vx, vy] = this.visorPos();
+        FX.light(vx, vy, 40, '#4af0ff', 1, 0.4);
+        FX.ring(vx, vy, 1, 10, 0.2, { c: '#4af0ff', core: '#ffffff', w: 1 });
+        Sound.play('glint');
+      }
+    } else {
+      I.stage = 'title';
+      if (once('title')) {
+        if (own) { C.zoom = 2; C.zoomOY = 10; C.big = { style: 'title', text: this.name, color: '#4af0ff', tag: 'RIVAL FRAME', sub: this.duel ? 'MELEE DUEL' : 'SECTOR 9 ENFORCER' }; C.bigT = 0; }
+        Sound.play('titleHit');
+        Sound.play('bossRoar');
+        FX.ring(x, this.cy, 4, 90, 0.5, { c: '#4af0ff', core: '#ffffff', w: 2 });
+        FX.dust(x, gy, 16, { smin: 40, smax: 150, rise: 6, r1: 5 });
+        Game.shake(0.5);
+      }
+      if (Math.random() < 0.3) FX.sparks(x + rand(-6, 6), gy - rand(4, 20), 1, -Math.PI / 2, 1, 20, 60, Object.assign({ g: -40 }, CY));
+      if (ct >= 4.8 && once('end')) this.endIntro();
+    }
+    this.updateScarf(dt);
+  }
+  endIntro() {
+    this.intro = null;
+    if (Game.cine && Game.cine.owner === this) Game.closeCine();
+    this.arrive(false);
+  }
+  introPose(o) {
+    const I = this.intro, ct = I.ct;
+    if (I.stage === 'rise') {
+      // stands up out of the kneel
+      const k = easeOutCubic(clamp((ct - 2.6) / 0.45, 0, 1));
+      o.lean = lerp(0.35, 0.05, k); o.hipY = lerp(-6, -10, k); o.fF = [5, -1]; o.fB = [lerp(-6, -5, k), -1];
+      o.hF = [lerp(5, 6, k), lerp(-16, -9, k)]; o.hB = [lerp(1, -3, k), lerp(-7, -8, k)]; o.swordAng = lerp(0.9, 2.2, k);
+    } else if (I.stage === 'title') {
+      o.hF = [7, -17]; o.hB = [-7, -17]; o.swordAng = -1.0; o.fF = [5, -1]; o.fB = [-5, -1]; o.tremble = ct < 3.6 ? 1 : 0;
+    } else {
+      // kneeling on its blade inside the beam
+      o.lean = 0.35; o.hipY = -6; o.fF = [5, -1]; o.fB = [-6, -1]; o.hF = [5, -16]; o.hB = [1, -7]; o.swordAng = 0.9;
+    }
+    return true;
+  }
+  drawIntro(ctx, x, y) {
+    const I = this.intro, ct = I.ct, t = this.t, top = -12;
+    if (I.stage === 'gather') {
+      // light pools at the spawn point; a thread from the sky flickers in at the end
+      const k = ct / 0.75;
+      ctx.fillStyle = '#145e6a'; pring(ctx, x, y - 1, 6 + k * 22, 0.25, 2);
+      ctx.fillStyle = ((t * 20) | 0) % 2 ? '#4af0ff' : '#bff8ff'; pring(ctx, x, y - 1, 3 + k * 16, 0.25, 1);
+      if (k > 0.55 && ((t * 30) | 0) % 3) { ctx.fillStyle = '#4af0ff'; ctx.fillRect(Math.round(x), top, 1, Math.round(y - top)); }
+      return;
+    }
+    let W = 0;
+    if (I.stage === 'erupt') W = 4 + 16 * easeOutBack(clamp((ct - 0.75) / 0.2, 0, 1)) + Math.sin(t * 50) * 1.5;
+    else if (I.stage === 'emerge') W = lerp(20, 9, clamp((ct - 2.0) / 0.4, 0, 1)) + Math.sin(t * 50);
+    else W = (1 - clamp((ct - 2.55) / 0.12, 0, 1)) * 9;
+    if (W > 0.5) this.drawBeam(ctx, x, y, top, W, t);
+    // a dark figure inside the light
+    if (I.stage === 'emerge' && this.spriteCopy) Sprite.outlined(ctx, this.spriteCopy, x, y, '#ffffff', { fill: '#0b0910' });
+  }
+  drawBeam(ctx, x, y, top, W, t) {
+    const xi = Math.round(x), h = Math.round(y - top);
+    const band = (w, col) => { const ww = Math.max(1, Math.round(w)); ctx.fillStyle = col; ctx.fillRect(xi - (ww >> 1), top, ww, h); };
+    ctx.globalAlpha = 0.45; band(W + 10, '#145e6a'); ctx.globalAlpha = 1;
+    band(W + 2, '#2ab8d8'); band(W * 0.7, '#7af0ff'); band(Math.max(2, W * 0.35), '#ffffff');
+    // pulses racing up the column
+    ctx.fillStyle = '#ffffff';
+    const bw = Math.round(W + 4);
+    for (let i = 0; i < 5; i++) ctx.fillRect(xi - (bw >> 1), Math.round(y - ((t * 340 + i * 53) % (h + 20))), bw, 2);
+    // ragged edges
+    ctx.fillStyle = '#bff8ff';
+    for (let yy = top; yy < y; yy += 3) {
+      if (Math.random() < 0.3) ctx.fillRect(xi + (Math.random() < 0.5 ? -1 : 1) * Math.round(W / 2 + 1 + Math.random() * 3), yy, 1, 2);
+    }
+    // flared base
+    ctx.fillStyle = '#4af0ff'; pring(ctx, x, y - 1, W * 1.4 + Math.sin(t * 30) * 2, 0.3, 2);
+    ctx.fillStyle = '#ffffff'; pring(ctx, x, y - 1, W * 0.8, 0.3, 1);
   }
 
   // ---------- knockout ----------
@@ -721,6 +906,7 @@ class Rival extends Enemy {
   }
   // Hold-to-skip from Game: jump to the end of whichever cutscene this rival is running.
   skipCine() {
+    if (this.intro) { this.endIntro(); return; }
     if (this.act && this.act.kind === 'enrage') {
       this.pal = AEGIS_PAL_P2; this.hover = false; this.riseV = 0; this.vy = 300;
       this.endEnrage();
@@ -775,6 +961,7 @@ class Rival extends Enemy {
   // ---------- drawing ----------
   drawFlash() {
     if (this.hitFlash > 0) return '#ffffff';
+    if (this.intro && this.intro.stage === 'rise' && this.intro.ct < 2.7) return '#ffffff';
     if (this.dying && this.ko && this.ko.stage === 'impact' && ((this.t * 40) | 0) % 2) return '#fff4d0';
     if (this.parryInvulnT > 0.3) return '#bff8ff';
     if (this.cutMark && ((this.t * 30) | 0) % 2) return '#4af0ff';
@@ -783,6 +970,7 @@ class Rival extends Enemy {
   customPose(o, la) {
     const a = this.act;
     if (this.dying && this.ko) return this.koPose(o);
+    if (this.intro) return this.introPose(o);
     if (this.stunT > 0) {
       o.lean = 0.7; o.hipY = -5; o.fF = [5, -1]; o.fB = [-4, -1]; o.hF = [7, -4]; o.hB = [2, -6]; o.swordAng = 1.25;
       return true;
@@ -851,12 +1039,16 @@ class Rival extends Enemy {
     this._handB = [this.x + J.HB[0] * this.facing, this.y + J.HB[1]];
   }
   draw(ctx, camX, camY) {
-    if (this.spawning) return;
+    // during the entry the body exists from the moment its silhouette shows in the beam
+    if (this.spawning && !(this.intro && this.intro.stage !== 'gather' && this.intro.stage !== 'erupt')) return;
     Player.prototype.draw.call(this, ctx, camX, camY);
   }
   drawEmissive(ctx, camX, camY) {
     const x = this.x - camX, y = this.y - camY;
-    if (this.spawning) {
+    if (this.spawning && this.intro) {
+      this.drawIntro(ctx, x, y);
+      if (this.intro.stage !== 'rise' && this.intro.stage !== 'title') return;
+    } else if (this.spawning) {
       const k = 1 - this.spawnT / 1.5, w = Math.max(1, Math.round((1 - k) * 5));
       if (((this.t * 30) | 0) % 3) {
         ctx.fillStyle = '#2ab8d8'; ctx.fillRect(Math.round(x) - w, -10, w * 2 + 1, Math.round(y + 10));
@@ -894,7 +1086,14 @@ class Rival extends Enemy {
     }
     const a = this.act;
     if (a && a.kind === 'guard') {
-      // a distinct guard: cyan aura and a prompt, so its counter-parry isn't a surprise
+      // a distinct guard: it glows cyan behind a deflector arc, so its counter-parry isn't a surprise
+      if (this.spriteCopy && Game.btOwner !== this) Sprite.outlined(ctx, this.spriteCopy, x, y, ((this.t * 8) | 0) % 2 ? '#4af0ff' : '#bff8ff', { glow: 0.25 });
+      const fa = this.facing > 0 ? 0 : Math.PI, ar = 16 + Math.sin(this.t * 14);
+      for (let i = -9; i <= 9; i++) {
+        const ang = fa + i * 0.12, px = x + Math.cos(ang) * ar, py = y - 11 + Math.sin(ang) * ar * 1.2;
+        ctx.fillStyle = Math.abs(i) < 6 ? '#ffffff' : '#4af0ff'; ctx.fillRect(Math.round(px), Math.round(py), 1, 2);
+        ctx.fillStyle = '#4af0ff'; ctx.fillRect(Math.round(px - Math.cos(ang)), Math.round(py - Math.sin(ang)), 1, 1);
+      }
       ctx.fillStyle = '#4af0ff';
       pring(ctx, x, y - 11, 14 + Math.sin(this.t * 14) * 1.5, 1.3, 1);
       if (((this.t * 16) | 0) % 2) { ctx.fillStyle = '#ffffff'; pline(ctx, x + this.facing * 4, y - 16, x + this.facing * 16, y - 19, 1); }
@@ -945,7 +1144,11 @@ class Rival extends Enemy {
     }
   }
   addLights() {
-    if (this.spawning) { FX.frameLight(this.x, this.y - 30, 80, '#4af0ff', 0.9); return; }
+    if (this.spawning && this.intro) {
+      const st = this.intro.stage;
+      if (st === 'gather') { FX.frameLight(this.x, this.y - 4, 30 + this.intro.ct * 40, '#4af0ff', 0.8); return; }
+      if (st === 'erupt' || st === 'emerge') { for (let d = 0; d < 220; d += 44) FX.frameLight(this.x, this.y - d, 80, '#4af0ff', 1); return; }
+    } else if (this.spawning) { FX.frameLight(this.x, this.y - 30, 80, '#4af0ff', 0.9); return; }
     if (this.dying && this.ko && this.pal === AEGIS_PAL_KO) return;
     const [vx, vy] = this.visorPos();
     FX.frameLight(vx, vy, 16, this.phase === 2 ? '#ffffff' : '#4af0ff', 0.9);
@@ -974,8 +1177,8 @@ function drawBlastZone(ctx, x, y, R, t) {
 }
 
 // Pulse grenade: lobbed on an arc, it detonates the moment it touches anything. A hostile blast knocks the
-// player's shield offline. Tether it in flight to slow time, reel in and slash it back toward the cursor;
-// a rebounded grenade breaks the rival's shield. A parry smothers it; any other sword hit sets it off.
+// player's shield offline. Tether it in flight to slow time, reel in and kick it back toward the cursor;
+// a rebounded grenade breaks the rival's shield. A parry smothers it; any sword hit sets it off.
 class PulseGrenade {
   // o: { g, R, dmg, disable (seconds the blast knocks your shield out), size } for smaller throwers
   constructor(x, y, vx, vy, owner, o = {}) {
@@ -989,14 +1192,14 @@ class PulseGrenade {
   get cy() { return this.y; }
   get tetherable() { return this.state === 'flying' && !this.dead; }
   catch() { this.state = 'caught'; this.hostile = false; this.impact = null; }
-  bat(ang) {
-    this.state = 'batted'; this.hostile = false;
+  kick(ang) {
+    this.state = 'kicked'; this.hostile = false;
     this.vx = Math.cos(ang) * 600; this.vy = Math.sin(ang) * 600;
     this.fuse = Math.max(this.fuse, 2);
   }
   reflect() { this.explode({ blocked: true }); }
   onSlash() {
-    Game.announce('TETHER IT FIRST', 'TETHER THE GRENADE, THEN SLASH IT BACK', '#4af0ff', 1.8, true);
+    Game.announce('TETHER IT FIRST', 'TETHER THE GRENADE, THEN KICK IT BACK', '#4af0ff', 1.8, true);
     this.explode();
   }
   update(dt) {
@@ -1014,8 +1217,8 @@ class PulseGrenade {
       }
       this.state = 'flying'; this.hostile = true;
     }
-    const owner = this.owner, batted = this.state === 'batted';
-    if (batted && owner && !owner.dead && !owner.dying) {
+    const owner = this.owner, kicked = this.state === 'kicked';
+    if (kicked && owner && !owner.dead && !owner.dying) {
       // light homing so a rough slash still finds it
       const want = Math.atan2(owner.cy - this.y, owner.x - this.x), cur = Math.atan2(this.vy, this.vx), d = angDiff(cur, want);
       if (Math.abs(d) < 1.0) {
@@ -1023,14 +1226,14 @@ class PulseGrenade {
         this.vx = Math.cos(na) * sp; this.vy = Math.sin(na) * sp;
       }
     }
-    this.vy += (batted ? 120 : this.g) * dt;
+    this.vy += (kicked ? 120 : this.g) * dt;
     for (let i = 0; i < 3; i++) {
       const py = this.y;
       this.x += (this.vx * dt) / 3; this.y += (this.vy * dt) / 3;
       if (this.contact(py)) return;
     }
     if (this.hostile && (this.predT -= dt) <= 0) { this.predT = 0.05; this.impact = this.predict(); }
-    if (Math.random() < 0.6) FX.sparks(this.x, this.y, 1, rand(0, TAU), TAU, 20, 60, batted ? { c0: '#ffffff', c1: '#ffd070', c2: '#ff3a52', g: 0 } : { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a', g: 0 });
+    if (Math.random() < 0.6) FX.sparks(this.x, this.y, 1, rand(0, TAU), TAU, 20, 60, kicked ? { c0: '#ffffff', c1: '#ffd070', c2: '#ff3a52', g: 0 } : { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a', g: 0 });
   }
   // Explodes on terrain, platforms, barrels, the player (while hostile) or any enemy (once rebounded).
   contact(py) {
@@ -1074,7 +1277,7 @@ class PulseGrenade {
       Game.shake(0.2);
       return;
     }
-    const friendly = this.state === 'batted';
+    const friendly = this.state === 'kicked';
     if (friendly) {
       if (owner && !owner.dead && dist(this.x, this.y, owner.x, owner.cy) < R + 6) owner.pulseHit();
       for (const e of Game.enemies) {

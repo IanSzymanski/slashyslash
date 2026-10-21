@@ -3,7 +3,7 @@
 
 // Style: hits build a meter that ranks you C to SSS. Repeating the same move earns less,
 // and the rank multiplies score and ultimate charge.
-const STYLE_GAIN = { dash: 6, slash: 4, groundcut: 8, rock: 2, plunge: 10, iaido: 10, chain: 5, tether: 10, reflect: 12, barrel: 10, saw: 1.5 };
+const STYLE_GAIN = { dash: 6, slash: 4, heavy: 7, groundcut: 8, rock: 2, plunge: 10, iaido: 10, chain: 5, tether: 10, reflect: 12, barrel: 10, saw: 1.5, overload: 5 };
 const STYLE_RANKS = [
   { th: 380, r: 'SSS', c: '#ffffff', mul: 2.5 }, { th: 260, r: 'SS', c: '#ffd070', mul: 2 }, { th: 170, r: 'S', c: '#ffb040', mul: 1.75 },
   { th: 100, r: 'A', c: '#ff5a6a', mul: 1.5 }, { th: 50, r: 'B', c: '#d0a0ff', mul: 1.25 }, { th: 20, r: 'C', c: '#9ab0d0', mul: 1.1 },
@@ -13,7 +13,7 @@ const Game = {
   state: 'menu', mode: 'demo', time: 0, realTime: 0, acc: 0,
   player: null, enemies: [], projectiles: [], props: [], hazards: [], pickups: [], cuts: [],
   cam: { x: 520, y: 100, ox: 0, oy: 0, trauma: 0, rx: 0, ry: 0 },
-  slowScale: 1, slowT: 0, freezeT: 0, btT: 0, btDur: 0,
+  slowScale: 1, slowT: 0, freezeT: 0, btT: 0, btDur: 0, btKind: null, btOwner: null,
   // cutscene: letterbox bars, camera focus, optional 2x zoom; the owner drives it and closes it
   cine: null, seenCines: new Set(), runs: {}, upgrades: new Set(),
   stats: { kills: 0, score: 0, maxCombo: 0, parries: 0, wave: 0, time: 0, damageTaken: 0, ults: 0 },
@@ -31,7 +31,7 @@ const Game = {
     this.enemies = []; this.projectiles = []; this.hazards = []; this.pickups = []; this.cuts = []; this.props = [];
     this.player = new Player(470, 205);
     this.player.facing = 1;
-    this.slowScale = 1; this.slowT = 0; this.freezeT = 0; this.btT = 0;
+    this.slowScale = 1; this.slowT = 0; this.freezeT = 0; this.btT = 0; this.btKind = null; this.btOwner = null;
     this.cine = null; Input.locked = false;
     Sound.setSlow(false);
     Sound.setIntensity(0);
@@ -51,7 +51,7 @@ const Game = {
     FX.clear();
     this.enemies = []; this.projectiles = []; this.hazards = []; this.pickups = []; this.cuts = []; this.props = [];
     this.player = new Player(1200, Level.GROUND);
-    this.time = 0; this.acc = 0; this.slowScale = 1; this.slowT = 0; this.freezeT = 0; this.overT = 0; this.btT = 0;
+    this.time = 0; this.acc = 0; this.slowScale = 1; this.slowT = 0; this.freezeT = 0; this.overT = 0; this.btT = 0; this.btKind = null; this.btOwner = null;
     this.cine = null; Input.locked = false;
     this.stats = { kills: 0, score: 0, maxCombo: 0, parries: 0, wave: 0, time: 0, damageTaken: 0, ults: 0 };
     this.combo = 0; this.comboT = 0; this.announcements = [];
@@ -110,11 +110,15 @@ const Game = {
     Sound.setSlow(true);
   },
   shake(t) { this.cam.trauma = Math.min(1, this.cam.trauma + t); },
-  // Bullet time for the grenade rebound: slow motion plus a desaturated screen.
-  bulletTime(dur) { this.btT = dur; this.btDur = dur; this.slowmo(0.25, dur, true); },
+  // Bullet time: slow motion plus a desaturated screen, so whatever is drawn emissive pops.
+  // kind 'rebound' (tethered grenade), 'riposte' (parry the rival's counter now), 'clash' (blades locked).
+  bulletTime(dur, o = {}) {
+    this.btT = dur; this.btDur = dur; this.btKind = o.kind || 'rebound'; this.btOwner = o.owner || null;
+    this.slowmo(o.scale || 0.25, dur, true);
+  },
   endBulletTime() {
     if (this.btT <= 0) return;
-    this.btT = 0; this.slowScale = 1; this.slowT = 0;
+    this.btT = 0; this.btKind = null; this.btOwner = null; this.slowScale = 1; this.slowT = 0;
     Sound.setSlow(false);
   },
   bulletK() {
@@ -130,7 +134,7 @@ const Game = {
     const p = this.player;
     if (p.sheathe) p.cancelSheathe();
     if (p.tether) p.releaseTether();
-    p.attackQueued = false; p.ultHold = 0; p.stopLoop('ult');
+    p.attackQueued = null; p.atkPend = null; p.ultHold = 0; p.stopLoop('ult');
     this.endBulletTime();
   },
   // Hands control back while the bars slide out.
@@ -236,7 +240,7 @@ const Game = {
         if (C.skipHold >= 0.5 && C.owner && C.owner.skipCine) { C.owner.skipCine(); Game.freezeT = 0; this.slowT = 0; this.slowScale = 1; Sound.setSlow(false); }
       }
     }
-    if (this.btT > 0) { this.btT -= realDt; if (this.btT <= 0) this.btT = 0; }
+    if (this.btT > 0) { this.btT -= realDt; if (this.btT <= 0) { this.btT = 0; this.btKind = null; this.btOwner = null; } }
     if (this.slowT > 0) {
       this.slowT -= realDt;
       if (this.slowT <= 0) { this.slowScale = 1; Sound.setSlow(false); }
@@ -313,7 +317,7 @@ const Game = {
     let tx = p.x - VIEW_W / 2 + lx + clamp(p.vx, -400, 400) * 0.1;
     let ty = p.y - 12 - VIEW_H * 0.56 + ly + clamp(p.vy, -300, 400) * 0.05;
     const C = this.cine;
-    if (C && C.focus && !C.closing) { tx = C.focus.x - VIEW_W / 2; ty = C.focus.y - 12 - VIEW_H / 2; }
+    if (C && C.focus && !C.closing) { tx = C.focus.x - VIEW_W / 2; ty = C.focus.y - 12 - VIEW_H / 2 + (C.camOY || 0); }
     cam.x = damp(cam.x, tx, C && !C.closing ? 4 : 7, realDt);
     cam.y = damp(cam.y, ty, C && !C.closing ? 4 : 5.5, realDt);
     cam.x = clamp(cam.x, 0, Level.W - VIEW_W);

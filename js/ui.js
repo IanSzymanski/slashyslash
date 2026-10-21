@@ -97,7 +97,7 @@ const UI = {
     if (victory && duel) sub = 'You beat AEGIS-07 blade to blade. Practice only: win the full Rival Fight to unlock it.';
     else if (victory) sub = boss ? 'AEGIS-07 is down and unlocked for a future character roster.' : 'All demo waves cleared, rival included. AEGIS-07 is unlocked for a future character roster.';
     else if (duel) sub = 'AEGIS-07 won the duel. Parry a swing, let it parry your counter, then parry its gold riposte.';
-    else if (boss) sub = 'AEGIS-07 holds the street. Tether its pulse grenade and slash it back to break the shield.';
+    else if (boss) sub = 'AEGIS-07 holds the street. Tether its pulse grenade and kick it back to break the shield.';
     else if (Game.mode === 'endless') sub = `You held the street until wave ${Director.wave}.`;
     else sub = Director.wave === 0 ? 'Down before the first wave.' : `Down on wave ${Director.wave} of ${DEMO_WAVES.length}.`;
     document.getElementById('over-sub').textContent = sub;
@@ -121,15 +121,17 @@ const UI = {
       ['Bullet jump (toward cursor)', `${actionLabel('crouch')} + ${actionLabel('jump')}`],
       ['Drop through platform', S.controls.dropDoubleTap ? `Double-tap ${actionLabel('crouch')}` : `Hold ${actionLabel('crouch')}`],
       ['Dash (2 charges, invulnerable)', `${actionLabel('dash')} + direction`],
-      ['Dash slash', `${actionLabel('attack')} during a dash`],
-      ['Slash combo (3 hits, aim with mouse)', actionLabel('attack')],
-      ['Ground cut with rubble spray', `${actionLabel('attack')} while sliding`],
+      ['Dash slash (hold for a heavy one)', `${actionLabel('attack')} during a dash`],
+      ['Slash string (aim with mouse)', `Tap ${actionLabel('attack')}`],
+      ['Heavy attack (mix into strings: L H L, L L H)', `Hold ${actionLabel('attack')}`],
+      ['Ground cut (hold: rock eruption launcher)', `${actionLabel('attack')} while sliding`],
       ['Plunge + shockwave (in the air)', `Hold ${actionLabel('crouch')} + ${actionLabel('attack')}`],
       ['Parry stance (15 shield, refunded on parry)', actionLabel('sheathe')],
       ['Counter after a parry', `Release ${actionLabel('sheathe')}`],
+      ['Overload: shock ring that interrupts (10s cooldown)', actionLabel('utility')],
       ['Tether: tap fling, hold zip', actionLabel('tether')],
       ['Grab, swing and throw barrels', `Hold ${actionLabel('tether')}, release`],
-      ['Rebound a pulse grenade (slows time)', `${actionLabel('tether')} on it, aim`],
+      ['Rebound a pulse grenade: reel in, kick it back', `${actionLabel('tether')} on it, aim`],
       ['Sawblade ultimate (when charged)', `Hold ${actionLabel('ultimate')} 1s`],
       ['Pause (training: spawn panel)', actionLabel('pause')],
       ['Skip a cutscene you have seen', `Hold ${actionLabel('sheathe')}`],
