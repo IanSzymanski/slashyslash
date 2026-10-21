@@ -323,11 +323,21 @@ If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, c
 - Positional audio.
 - 3D effects in `slashyslash2/js/fx.js`: additive sprites, rings, lightning, ground marks, trails, gibs.
 
+**Status: built.** Street Waves (scrappers, then gunners and grenadiers) is the feel test for it. Notes from the build:
+
+- The gunner and the grenadier were pulled forward from Phase 3, since bolt returns and grenade kicks need something to answer. Their tells carry over: the gunner's laser (dashed while tracking, white once locked) and the grenadier's arc with its blast zone on the ground.
+- The tether fires down the crosshair's line and snaps to an enemy, barrel or grenade within 4 degrees; the line is drawn from the model's hand. Barrels sit on the 2D barrel spots.
+- The slam's two ground waves are one ring running out over the ground, stopped by walls. Aftershock uses the same ring for the plunge.
+- Bullet time desaturates lit surfaces in their shader rather than with a screen pass, so glowing parts and all effects stay bright, as the 2D emissive layer did.
+- Ground marks glow hot and cool to pale scars, since dark marks vanished on the dark street. Dashes, bullet jumps, plunges, zips and grenade reels leave afterimages of the model.
+- Movement numbers: bullet jump 10.5 m when aimed 30 degrees up, wall slide 6.4 m/s, wall kick +3.9 m.
+- Shield, health, the overflow rule, hit flags, the style meter, slow motion, hitstop and positional audio were already in from Phase 1.
+
 ### Phase 3: enemies, AI and waves (~3,000)
 
 - Navigation layers and jump links.
 - The humanoid enemy rig and its variants, then the brute, crawler and drone.
-- The other seven enemy types' behaviour.
+- The other five enemy types' behaviour (the gunner and grenadier came in Phase 2).
 - Attack slots with the camera rule; threat ring markers; glints drawn on top of walls with a minimum size.
 - Director modes: demo, endless, upgrades, wave modifiers.
 - Pickups and damage numbers (projected into the HUD canvas).
@@ -355,6 +365,18 @@ If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, c
 - The settings panel rows for camera, comfort and resolution.
 - A 3D README in the same shape as the 2D one.
 - A pass over the 2D README and the `SYNCED_FROM` diff for anything you want that the 3D lane still lacks.
+
+### Effects and sound over the phases
+
+Each phase ports the effects and sounds of what it builds, so a mechanic arrives with its 2D feedback rather than as a placeholder. The procedural sounds and music are already all in (`audio.js` is a copy of the 2D one, placed in 3D with HRTF panning); what's left is effects for things not built yet:
+
+- Phase 2 (done): every player move's effects, ground marks, afterimages, bullet time.
+- Phase 3: the brute, crawler, drone, shielder and sniper's tells and death effects, elite outlines.
+- Phase 4: the world's atmosphere: weather, neon and fire flicker in the full light bake, fog, the Blackout rebake, the Retro preset, and a glow pass if the 2D glow setting is missed.
+- Phase 5: the rival's effects: the red flash, blade waves, eruptions, ground rings, the pulse grenade's full blast, and the cutscenes.
+- Phase 6: the Sawblade.
+
+Keeping them in step with 2D: `tools/sync-2d.js` lists every 2D change to `fx.js`, `audio.js` and the files that call them since `SYNCED_FROM`; sound changes copy straight across, effect changes are ported by hand into `fx.js` or `views.js`. The 3D smoke test fails if a new effect's material compiles mid-fight, so each one gets added to the load-time prewarm.
 
 There's no cutover. The 2D game stays in this repo as the main game, and the 3D lane keeps growing in its own for as long as it's fun to tinker on. End state: about 15,000 lines in slashyslash2 (about 2,000 copied, about 13,000 new).
 
