@@ -198,7 +198,7 @@ class Enemy {
         if (this.cd <= 0 && adx < 280 && !p.dead && this.onGround && clear) {
           this.setState('aim'); this.aim = toP; this.blockedT = 0; this.seekX = undefined; Sound.play('enemyWindup', { pm: 0.7 });
         } else if (this.cd <= 0 && adx < 280 && !p.dead && !clear) {
-          // blocked by cover or a ledge: find a spot with a clear shot, or hop up for one
+          // blocked by a car or a ledge: find a spot with a clear shot, or hop up for one
           this.blockedT = (this.blockedT || 0) + dt;
           if (this.blockedT > 1.5 && this.seekX === undefined) { this.blockedT = 0; this.findFiringSpot(p); }
         }
@@ -224,7 +224,7 @@ class Enemy {
         break;
     }
   }
-  // Flank: look for a spot near the player (own side first, then across the cover) with a clear shot.
+  // Flank: look for a spot near the player (own side first, then the far side) with a clear shot.
   findFiringSpot(p) {
     const side = sign(this.x - p.x) || 1;
     let best = null;
@@ -515,10 +515,12 @@ function hurtEnemy(e, dmg, o = {}) {
     if (ky < 0) { e.vy = Math.min(e.vy, ky); if (ky < -60) e.onGround = false; }
     else if (ky > 0) e.vy = Math.max(e.vy, ky);
   }
+  // heavy attacks hit brutes and scrappers hard but don't stagger them
+  const steady = o.heavyAtk && (e.type === 'brute' || e.type === 'scrapper');
   if (e.heavy) {
     e.poise += d;
-    if (o.heavy || e.poise > 80) { e.poise = 0; e.stagger(o.stagger || 0.4); }
-  } else e.stagger(Math.max(o.stagger || 0.2, 0.12));
+    if (!steady && (o.heavy || e.poise > 80)) { e.poise = 0; e.stagger(o.stagger || 0.4); }
+  } else if (!steady) e.stagger(Math.max(o.stagger || 0.2, 0.12));
   const hx = e.x, hy = e.cy;
   const ang = o.angle !== undefined ? o.angle : Math.atan2(hy - Game.player.cy, hx - Game.player.x);
   FX.sparks(hx, hy, o.heavy ? 12 : 7, ang, 1.3, 60, 240);
@@ -541,7 +543,7 @@ function killEnemy(e, o) {
   e.render(g);
   const img = Sprite.snapshot();
   const cx = e.x, cy = e.cy;
-  const cut = ['slash', 'iaido', 'saw', 'tether', 'plunge', 'chain', 'groundcut'].includes(o.cause);
+  const cut = ['slash', 'heavy', 'iaido', 'saw', 'tether', 'plunge', 'chain', 'groundcut'].includes(o.cause);
   const ang = o.angle !== undefined ? o.angle : rand(0, TAU);
   const base = ((o.kx || 0) * 0.35) / e.mass;
   const nx = Math.cos(ang + Math.PI / 2), ny = Math.sin(ang + Math.PI / 2);

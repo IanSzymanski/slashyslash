@@ -464,6 +464,90 @@ const Sound = (() => {
       noise({ dur: 0.12, vol: 0.18, type: 'highpass', f0: 4000 });
       tone({ type: 'sine', f0: 140, f1: 90, dur: 0.15, vol: 0.3 });
     },
+    // holding attack crossed into a heavy: a low tightening hum with a click
+    heavyDraw() {
+      tone({ type: 'sawtooth', f0: 90, f1: 180, dur: 0.12, vol: 0.06, a: 0.02 });
+      tone({ type: 'triangle', f0: 1400, f1: 2100, dur: 0.06, vol: 0.05 });
+      noise({ dur: 0.04, vol: 0.12, type: 'highpass', f0: 4200 });
+    },
+    heavySwing() {
+      noise({ dur: 0.34, vol: 0.42, f0: 1400, f1: 160, q: 0.9 });
+      tone({ type: 'sine', f0: 120, f1: 34, dur: 0.3, vol: 0.5 });
+      crackle(0.2, 0.2, { f: 700 });
+    },
+    kick() {
+      tone({ type: 'sine', f0: 210, f1: 55, dur: 0.14, vol: 0.7 });
+      noise({ dur: 0.07, vol: 0.4, type: 'lowpass', f0: 2600, f1: 400 });
+      tone({ type: 'square', f0: 900, f1: 300, dur: 0.04, vol: 0.05 });
+    },
+    overload() {
+      tone({ type: 'sawtooth', f0: 1600, f1: 120, dur: 0.4, vol: 0.09 });
+      tone({ type: 'sine', f0: 140, f1: 30, dur: 0.45, vol: 0.75 });
+      noise({ dur: 0.4, vol: 0.5, type: 'bandpass', f0: 3200, f1: 500, q: 0.8, rev: 0.4 });
+      crackle(0.45, 0.45, { f: 900 });
+    },
+    utilReady() {
+      tone({ type: 'triangle', f0: 880, dur: 0.07, vol: 0.05 });
+      tone({ type: 'triangle', f0: 1320, dur: 0.1, vol: 0.05, delay: 0.06, rev: 0.3 });
+      crackle(0.08, 0.06);
+    },
+    // blades lock: a bright ring with a grinding edge
+    clash() {
+      for (const f of [1760, 2349, 3136]) tone({ type: 'triangle', f0: f, f1: f * 0.94, dur: 0.5, vol: 0.06, rev: 0.5 });
+      noise({ dur: 0.25, vol: 0.3, f0: 4000, f1: 1500, q: 2 });
+      tone({ type: 'sine', f0: 260, f1: 90, dur: 0.3, vol: 0.35 });
+    },
+    // red flash: a low hit and a sour stab, then a rising tone that peaks where the dash belongs
+    peril(p) {
+      const d = p.dur || 0.6;
+      tone({ type: 'sawtooth', f0: 130, f1: 48, dur: 0.4, vol: 0.2 });
+      for (const f of [1480, 2093]) tone({ type: 'square', f0: f, f1: f * 0.97, dur: 0.16, vol: 0.035, rev: 0.4 });
+      noise({ dur: 0.2, vol: 0.25, f0: 2500, f1: 600, q: 1.5 });
+      tone({ type: 'sawtooth', f0: 180, f1: 720, dur: d, vol: 0.04, a: 0.02, slide: d });
+      tone({ type: 'sine', f0: 1975, dur: 0.12, vol: 0.06, delay: d, rev: 0.4 });
+    },
+    // phase-2 eruptions: crackle building under the street, then the column bursts out
+    eruptWarn(p) {
+      const d = p.dur || 0.8;
+      crackle(d, 0.12, { f: 600 });
+      tone({ type: 'sawtooth', f0: 50, f1: 110, dur: d, vol: 0.05, a: d * 0.6 });
+    },
+    eruptBeam() {
+      tone({ type: 'sine', f0: 140, f1: 40, dur: 0.5, vol: 0.45 });
+      noise({ dur: 0.6, vol: 0.4, type: 'lowpass', f0: 3600, f1: 200, rev: 0.4 });
+      tone({ type: 'sawtooth', f0: 220, f1: 660, dur: 0.5, vol: 0.03, rev: 0.4 });
+      crackle(0.5, 0.25, { f: 700 });
+    },
+    perilDodge() {
+      noise({ dur: 0.22, vol: 0.3, f0: 3200, f1: 700, q: 1.2 });
+      tone({ type: 'sine', f0: 1320, f1: 2640, dur: 0.22, vol: 0.06, rev: 0.5 });
+    },
+    // the riposte is coming: a rising tone that peaks where the parry belongs
+    riposteCue(p) {
+      const d = p.dur || 0.45;
+      tone({ type: 'sine', f0: 440, f1: 1760, dur: d, vol: 0.08, a: 0.02, slide: d });
+      tone({ type: 'triangle', f0: 220, f1: 880, dur: d, vol: 0.05, a: 0.02, slide: d });
+      tone({ type: 'sine', f0: 2637, dur: 0.12, vol: 0.06, delay: d, rev: 0.4 });
+    },
+    // AEGIS-07 arrives: the street rumbles, a beacon erupts, the title hits
+    beaconRumble() {
+      tone({ type: 'sawtooth', f0: 38, f1: 70, dur: 0.8, vol: 0.12, a: 0.25, rev: 0.4 });
+      noise({ dur: 0.8, vol: 0.35, type: 'lowpass', f0: 300, f1: 900, a: 0.3 });
+      crackle(0.7, 0.18, { f: 500 });
+    },
+    beaconErupt() {
+      tone({ type: 'sine', f0: 150, f1: 24, dur: 1.1, vol: 1.0 });
+      noise({ dur: 1.2, vol: 0.8, type: 'lowpass', f0: 4200, f1: 90, rev: 0.6 });
+      tone({ type: 'sawtooth', f0: 110, f1: 880, dur: 1.2, vol: 0.06, rev: 0.5 });
+      noise({ dur: 1.0, vol: 0.3, f0: 600, f1: 5000, q: 1, rev: 0.5 });
+      crackle(1.0, 0.5, { f: 700 });
+    },
+    titleHit() {
+      tone({ type: 'sine', f0: 90, f1: 30, dur: 1.0, vol: 0.9 });
+      for (const f of [196, 293.7, 392, 587.3]) tone({ type: 'sawtooth', f0: f, dur: 1.2, vol: 0.035, a: 0.01, rev: 0.6 });
+      noise({ dur: 0.3, vol: 0.4, type: 'highpass', f0: 3000, rev: 0.5 });
+      crackle(0.3, 0.3);
+    },
     ui() { tone({ type: 'square', f0: 660, dur: 0.04, vol: 0.05 }); },
     uiHover() { tone({ type: 'sine', f0: 990, dur: 0.02, vol: 0.02 }); },
     gameOver() {

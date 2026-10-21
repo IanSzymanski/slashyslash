@@ -5,7 +5,8 @@
 // and a pulse grenade that must be tethered and slashed back to break the shield.
 // At half health it blasts the player away and enrages in a short cutscene.
 // Phase 2: shield and ranged weapons go offline and it fights in melee combos. Parry one of its
-// attacks and it guards against your counter, parries it and ripostes; parry the riposte to stun it.
+// attacks and it guards; it also raises guards of its own. Swing into a guard and it parries and
+// ripostes in bullet time; parry the riposte to stun it.
 // The last hit plays a slow-motion knockout cutscene and leaves it lying in the street.
 // Its character definition lives in CHARACTERS so it can be made playable once unlocked.
 
@@ -18,8 +19,9 @@ const AEGIS_PAL_P2 = Object.assign({}, AEGIS_PAL, { visor: '#ffffff', core: '#ff
 const AEGIS_PAL_KO = Object.assign({}, AEGIS_PAL, { visor: '#1a2a34', core: '#22303a', edge: '#3a4a5a', scarf: '#2a6a74' });
 
 const CHARACTERS = {
-  ronin: { id: 'ronin', name: 'RONIN', pal: PCOL, weapon: 'katana', unlocked: () => true },
-  aegis: { id: 'aegis', name: 'AEGIS-07', pal: AEGIS_PAL, weapon: 'greatblade', unlocked: () => !!SaveData.unlocks.aegis },
+  // utility: the F ability (js/utilities.js); AEGIS-07 gets its own when it becomes playable
+  ronin: { id: 'ronin', name: 'RONIN', pal: PCOL, weapon: 'katana', utility: 'overload', unlocked: () => true },
+  aegis: { id: 'aegis', name: 'AEGIS-07', pal: AEGIS_PAL, weapon: 'greatblade', utility: null, unlocked: () => !!SaveData.unlocks.aegis },
 };
 
 ENEMY_DEFS.aegis = { hp: 900, w: 8, h: 20, speed: 145, score: 5000, mass: 6, dmg: 5, debris: ['#3c4760', '#7a8aa6', '#1c2130', '#4af0ff'] };
@@ -27,6 +29,16 @@ ENEMY_BASE_STATE.aegis = 'fight';
 
 const BOLT_CYAN = { outer: '#2ab8d8', core: '#e0ffff', light: '#4af0ff' };
 const GRENADE_G = 600;
+// time scale of the bullet time that plays while its riposte winds up
+const RIPOSTE_BT_SCALE = 0.7;
+// returned bolts it takes to break the phase-1 shield
+const SHIELD_CRACKS = 8;
+// the red flash: an attack no parry can stop, only a dash
+const PERIL_RED = '#ff2a3a';
+// how long before a riposte or red-flash swing its eye flashes (0.3 s of bullet time): act on the flash.
+// Those blows connect at the end of their lunge, so the flash always comes the same time before the hit.
+const CUE_LEAD = 0.21;
+const CLOSE_CONNECT = 0.09;
 
 // Greatblade moves. wind = telegraph before the swing; swing = active time.
 const RIVAL_MOVES = {
@@ -35,7 +47,12 @@ const RIVAL_MOVES = {
   rise: { wind: 0.32, swing: 0.22, r: 48, span: 2.8, dmg: 16, lunge: 90, rising: true },
   thrust: { wind: 0.36, swing: 0.2, r: 0, span: 0.01, dmg: 18, thrust: true },
   spin: { wind: 0.42, swing: 0.3, r: 44, span: TAU - 0.02, dmg: 16, spin: true },
-  riposte: { wind: 0.34, swing: 0.2, r: 54, span: 3.6, dmg: 28, lunge: 240 },
+  riposte: { wind: 0.34, swing: 0.2, r: 54, span: 3.6, dmg: 28, close: true },
+  // red flash: everything on the side it faced when it flashed, out to zone px, takes it. Only its back is safe.
+  peril: { wind: 0.45, swing: 0.24, r: 70, span: 3.2, dmg: 45, close: true, unparryable: true, zone: 300 },
+  wave: { wind: 0.4, swing: 0.22, r: 40, span: 2.6, dmg: 12, wave: true },
+  // the follow-up wave: it jumps as it winds up and throws it just past the top, at head height
+  waveAir: { wind: 0.42, swing: 0.22, r: 40, span: 2.6, dmg: 12, wave: true, air: true },
 };
 const RIVAL_COMBOS = [
   ['slash', 'slash', 'cleave'], ['thrust', 'slash', 'rise'], ['slash', 'spin'],
@@ -58,16 +75,19 @@ class Rival extends Enemy {
     this.deadT = 0; this.tether = null; this.ghostT = 0; this.dropT = 0; this.dropThrough = false; this.jumpCD = 0;
     this.scarf = [];
     for (let i = 0; i < 6; i++) this.scarf.push({ x: x + i * 2, y: y - 16, px: x + i * 2, py: y - 16 });
-    this.cds = { gun: 1.2, blade: 0, beam: 8, grenade: 3, combo: 0.5, dash: 0, zip: 2, dodge: 0 };
+    this.cds = { gun: 1.2, blade: 0, beam: 8, grenade: 3, combo: 0.5, dash: 0, zip: 2, dodge: 0, wave: 2, dive: 3, closer: 0 };
     this.cracks = 0; this.p2Hp = 0;
     this.act = null; this.hover = false; this.beam = null; this.grenade = null; this.beamLoop = null;
     this.dodged = new WeakSet(); this.dying = false; this.dyingT = 0; this.boomT = 0;
     this.kite = chance(0.5) ? 1 : -1;
-    this.riseV = 0; this.ko = null; this.koT = 0;
+    this.riseV = 0; this.ko = null; this.koT = 0; this.intro = null;
+    this.cds.guard = 2;
   }
 
   // Melee duel test mode: full health, and the enrage cutscene plays as soon as it lands.
   startDuel() { this.duel = true; }
+  // Entry cutscene: the street rumbles, a beacon of energy erupts, it kneels inside it, stands, and its title hits.
+  cinematicIntro() { this.intro = { t: 0, ct: 0, stage: 'gather', done: {}, started: false }; this.facing = sign(Game.player.x - this.x) || -1; }
 
   // ---------- damage hooks used by hurtEnemy ----------
   shielded() { return this.shield && !this.dying; }
@@ -76,8 +96,10 @@ class Rival extends Enemy {
   damageTakenMul() { return this.stunT > 0 ? 1.3 : this.phase === 1 && !this.shield ? 0.6 : 1; }
   // In phase 2 your parry is met blade to blade: no counter, and it raises a guard instead.
   clashes() { return this.phase === 2 && !(this.act && this.act.move === 'riposte'); }
+  // 0 at the start of phase 2, 1 near death.
+  rageK() { return clamp(1 - this.hp / (this.p2Hp || this.maxHp), 0, 1); }
   // Later combos come faster as its health drops.
-  rageGap() { return this.phase === 2 ? lerp(1.8, 0.8, clamp(1 - this.hp / (this.p2Hp || this.maxHp), 0, 1)) : 1; }
+  rageGap() { return this.phase === 2 ? lerp(1.8, 0.8, this.rageK()) : 1; }
   // phase 1 can't be skipped: damage stops at half health until the limiters come off
   gateDamage(d) { return this.phase === 1 ? Math.max(0, Math.min(d, this.hp - Math.floor(this.maxHp / 2))) : d; }
   // Hits it deflects without a shield: its own parries, and the phase change.
@@ -88,13 +110,13 @@ class Rival extends Enemy {
     return false;
   }
   shieldHit(o) {
-    // bolts sent back into the shield crack it; three cracks break it like a rebounded grenade
+    // bolts sent back into the shield crack it; enough cracks break it like a rebounded grenade
     if (o.cause === 'reflect' && this.phase === 1 && !this.dying) {
       this.cracks++;
       FX.ring(this.x, this.cy, 4, 18, 0.2, { c: '#ffffff', core: '#4af0ff', w: 1 });
-      FX.text('CRACK ' + this.cracks + '/3', this.x, this.y - 40, { c: '#ffffff', always: true, dur: 0.8, vy: -22 });
+      FX.text('CRACK ' + this.cracks + '/' + SHIELD_CRACKS, this.x, this.y - 40, { c: '#ffffff', always: true, dur: 0.8, vy: -22 });
       Sound.play('reflect');
-      if (this.cracks >= 3) { this.breakShield(); return; }
+      if (this.cracks >= SHIELD_CRACKS) { this.breakShield(); return; }
     }
     const p = Game.player, a = o.angle !== undefined ? o.angle : Math.atan2(this.cy - p.cy, this.x - p.x);
     const hx = this.x - Math.cos(a) * 14, hy = this.cy - Math.sin(a) * 16;
@@ -119,13 +141,13 @@ class Rival extends Enemy {
     Game.slowmo(0.25, 0.55, true);
     Game.shake(0.6);
     Game.hitstop(0.1);
-    Game.announce('SHIELD DOWN', 'STRIKE NOW', '#4af0ff', 1.6);
+    Game.announce('SHIELD DOWN', null, '#4af0ff', 1.6);
   }
   restoreShield() {
     this.shield = true; this.cracks = 0;
     FX.ring(this.x, this.cy, 30, 6, 0.4, { c: '#4af0ff', core: '#ffffff', w: 1 });
     Sound.play('shieldUp');
-    Game.announce('SHIELD RESTORED', 'TETHER ITS GRENADE, SLASH IT BACK', '#4af0ff', 1.3, true);
+    Game.announce('SHIELD RESTORED', null, '#4af0ff', 1.3, true);
   }
   pulseHit() {
     if (this.dying || this.transT > 0) return;
@@ -139,51 +161,224 @@ class Rival extends Enemy {
   }
   // Called when the player parries one of its attacks.
   stagger(dur, kx = 0) {
-    if (this.dying || dur < 1.2) return;
+    // a stunned rival can't be staggered into a guard (e.g. by parrying one of its leftover shockwaves)
+    if (this.dying || dur < 1.2 || this.stunT > 0) return;
     if (this.phase === 2) {
       if (this.act && this.act.move === 'riposte') {
+        if (this.rollReparry()) { this.raiseGuard(1.6, 'reparry'); this.vx += kx / 4; return; }
         this.stunFor(3.2);
         this.vx = kx / 2; this.vy = -120;
-        FX.ring(this.x, this.cy, 4, 40, 0.35, { c: '#ffd070', core: '#ffffff', w: 2 });
+        FX.sparks(this.x, this.cy, 24, -Math.PI / 2, TAU, 60, 260, { c0: '#ffffff', c1: '#ffd070', c2: '#a06010' });
         Sound.play('bossShieldBreak');
         Game.slowmo(0.25, 0.5, true);
-        Game.announce('STAGGERED', 'PUNISH IT', '#ffd070', 1.4);
         return;
       }
-      // it raises a guard, ready to parry whatever you throw next
-      this.attack = null; this.lungeT = 0;
-      this.act = { kind: 'guard', t: 0 };
-      this.guardT = 1.4;
+      // blades lock and it raises a guard, ready to parry whatever you throw next
+      this.raiseGuard(1.4, 'clash');
       this.vx += kx / 4;
-      FX.ring(this.x, this.cy, 22, 12, 0.25, { c: '#4af0ff', core: '#ffffff', w: 1 });
-      Sound.play('guardUp');
       return;
     }
     this.flinchT = 0.7; this.hurtT = 0.7;
     this.act = null; this.attack = null; this.hover = false; this.beam = null; this.lungeT = 0;
     this.vx += kx / 3;
   }
+  // After you parry its riposte it usually staggers; sometimes it recovers into a guard that parries your counter back.
+  rollReparry() {
+    this.reparried = chance(this.reparried ? 0.15 : lerp(0.3, 0.55, this.rageK()));
+    return this.reparried;
+  }
+  // Its first parry usually answers gold, but sometimes red: read which as it happens.
+  rollRedFirst() {
+    this.redFirst = chance(this.redFirst ? 0.12 : lerp(0.25, 0.4, this.rageK()));
+    return this.redFirst;
+  }
+  // Phase 2 guard: anything swung into it is parried and answered with a riposte.
+  // why: 'clash' (you parried its swing), 'read' (it saw your attack coming), 'stance' (it waits for you to commit),
+  // 'reparry' (it caught your parry of its riposte; what it parries next gets the red flash instead).
+  raiseGuard(dur, why) {
+    if (this.stunT > 0 || this.dying) return;
+    this.attack = null; this.lungeT = 0;
+    this.act = { kind: 'guard', t: 0, why };
+    this.guardT = dur;
+    this.facing = sign(Game.player.x - this.x) || this.facing;
+    // the tell is a quick cyan glint from its eye
+    this.eyeGlint('#7af0ff', 1.6);
+    Sound.play('guardUp');
+    if (why === 'clash' || why === 'reparry') { Sound.play('clash'); Game.bulletTime(0.3, { kind: 'clash', scale: 0.3, owner: this }); }
+  }
+  // 0..1 through the riposte or red-flash wind-up, reaching 1 as its eye flashes.
+  cueProgress() {
+    const a = this.act;
+    if (!a || !a.m || !a.m.close || a.phase !== 'wind') return 1;
+    return clamp(a.t / Math.max(0.05, this.tele(a.m.wind) - CUE_LEAD), 0, 1);
+  }
+  eyeGlint(c, size) {
+    const v = this.visorPos();
+    FX.glint(v[0], v[1], { c, size, dur: 0.24, follow: () => this.visorPos() });
+  }
   parryPlayer(o) {
+    const reparry = !!(this.act && this.act.why === 'reparry');
     this.guardT = 0; this.parryInvulnT = 0.45;
     const p = Game.player;
     this.facing = sign(p.x - this.x) || this.facing;
     const [cx, cy] = this.chest();
-    FX.ring(cx, cy, 4, 34, 0.28, { c: '#4af0ff', core: '#ffffff', w: 2 });
     FX.sparks(cx + this.facing * 8, cy, 18, Math.PI + (this.facing > 0 ? 0 : Math.PI), 1.6, 80, 280, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a' });
-    FX.text('PARRIED', this.x, this.y - 34, { c: '#4af0ff', always: true, dur: 0.8, vy: -24 });
     Sound.play('parry');
     Game.hitstop(0.06);
-    Game.slowmo(0.4, 0.3);
     Game.shake(0.2);
     if (!p.dead) { p.vx = sign(p.x - this.x || 1) * 170; p.vy = Math.min(p.vy, -80); }
+    if (reparry || this.rollRedFirst()) { this.startPeril(); return; }
     this.startMove('riposte', null);
-    Game.announce('COUNTERED', 'PARRY ITS RIPOSTE', '#4af0ff', 1.0, true);
+    // the world drains to grey, it glows gold, and its eye flashes gold: parry on the flash
+    const wind = this.tele(RIVAL_MOVES.riposte.wind), real = wind / RIPOSTE_BT_SCALE;
+    Game.bulletTime(real + 0.2, { kind: 'riposte', scale: RIPOSTE_BT_SCALE, owner: this });
+    Sound.play('riposteCue', { dur: Math.max(0.1, (wind - CUE_LEAD) / RIPOSTE_BT_SCALE) });
+  }
+  // Red flash: it flares red and winds up a blow that goes straight through a parry. Dash through it.
+  startPeril() {
+    this.startMove('peril', null);
+    const [cx, cy] = this.chest();
+    this.perilFlash = 0.16;
+    FX.light(cx, cy, 120, PERIL_RED, 1, 0.5);
+    Game.shake(0.25);
+    const wind = this.tele(RIVAL_MOVES.peril.wind), real = wind / RIPOSTE_BT_SCALE;
+    Game.bulletTime(real + 0.2, { kind: 'peril', scale: RIPOSTE_BT_SCALE, owner: this });
+    Sound.play('peril', { dur: Math.max(0.1, (wind - CUE_LEAD) / RIPOSTE_BT_SCALE) });
+  }
+  // The reparry guard meets your counter-slash at contact: the draw stops dead and you bounce off.
+  deflectIaido(p) {
+    const a = this.act;
+    if (!a || a.kind !== 'guard' || a.why !== 'reparry' || this.guardT <= 0 || p.dead) return false;
+    p.iaido = null; p.attack = null; p.postPose = 0; p.iframes = 0;
+    p.vx = (sign(p.x - this.x) || -this.facing) * 220; p.vy = -120;
+    FX.sparks((p.x + this.x) / 2, this.y - 12, 26, 0, TAU, 80, 320, { c0: '#ffffff', c1: '#ffe080', c2: '#145e6a' });
+    this.parryPlayer({ cause: 'iaido' });
+    return true;
+  }
+  // Wide crescent of energy thrown off the swing, travelling along the street.
+  fireWave() {
+    const [cx, cy] = this.chest();
+    Game.projectiles.push(new BladeWave(cx + this.facing * 12, cy - 2, this.facing, 16 * this.dmgMul));
+    FX.light(cx + this.facing * 12, cy, 70, '#4af0ff', 1, 0.2);
+    Sound.play('heavySwing');
+  }
+  // Dive bomb: a crouch and eye glint, a leap high over you, a hang at the top with the blade up while a mark on
+  // the ground tracks you and then locks, and a diving slash onto the mark that cracks the street.
+  startDive(p) {
+    this.attack = null; this.lungeT = 0;
+    this.facing = sign(p.x - this.x) || this.facing;
+    this.act = { kind: 'dive', phase: 'crouch', t: 0, tx: p.x, ty: Level.groundBelow(p.x, p.y - 4) };
+    this.eyeGlint('#ff9aaa', 1.4);
+    Sound.play('enemyWindup', { pm: 0.5 });
+  }
+  runDive(dt, a, p) {
+    const track = () => { a.tx = clamp(p.x, 50, Level.W - 50); a.ty = Level.groundBelow(a.tx, p.y - 4); };
+    const hangT = this.tele(0.42);
+    if (a.phase === 'crouch') {
+      if (a.t >= this.tele(0.24)) {
+        a.phase = 'rise'; a.t = 0;
+        this.vy = -560; this.onGround = false;
+        this.vx = clamp((a.tx - this.x) / 0.55, -420, 420);
+        Sound.play('jump');
+        FX.dust(this.x, this.y, 6, { smax: 60 });
+      }
+    } else if (a.phase === 'rise') {
+      track();
+      this.vx = approach(this.vx, clamp((a.tx - this.x) * 3, -420, 420), 1400 * dt);
+      this.facing = sign(a.tx - this.x) || this.facing;
+      if (this.vy >= -30 || a.t > 0.8) { a.phase = 'hang'; a.t = 0; this.eyeGlint('#ff9aaa', 1.8); Sound.play('glint'); }
+    } else if (a.phase === 'hang') {
+      // the mark follows you for most of the hang, then locks
+      if (a.t < hangT * 0.65) track();
+      else a.locked = true;
+      this.facing = sign(a.tx - this.x) || this.facing;
+      if (a.t >= hangT) {
+        a.phase = 'dive'; a.t = 0; a.hit = false;
+        // always down onto the mark, even if you climbed above it
+        const ty = Math.max(a.ty, this.y + 40), dx = a.tx - this.x, dy = ty - this.y, d = Math.hypot(dx, dy) || 1;
+        a.vx = (dx / d) * 780; a.vy = (dy / d) * 780;
+        const [cx, cy] = this.chest(), ang = Math.atan2(dy, dx);
+        FX.swoosh({ x: cx, y: cy, follow: this, ox: 0, oy: -12, r: 34, span: 2.4, ang, dir: this.facing, sweep: 0.2, dur: 0.4, thick: 14, pal: PALETTES.cyan, trail: 0.95 });
+        Sound.play('swing', { stage: 3 });
+      }
+    } else if (a.phase === 'dive') {
+      // falls through balconies above the mark
+      this.dropThrough = this.y < a.ty - 6; this.dropT = 0.1;
+      if (!a.hit && !p.dead) {
+        const [cx, cy] = this.chest();
+        if (sectorRect(cx, cy, 30, Math.atan2(a.vy, a.vx), 2.4, p.x - p.w / 2, p.y - p.h, p.w, p.h)) {
+          a.hit = true;
+          p.takeHit({ dmg: 22 * this.dmgMul, x: this.x, y: cy, kind: 'melee', source: this, knock: 260 });
+          if (this.act !== a) return { mx: 0 };
+        }
+      }
+      if ((this.onGround && a.t > 0.02) || a.t > 0.7) this.diveImpact();
+    }
+    return { mx: 0 };
+  }
+  diveImpact() {
+    // the landing is its punish window
+    this.act = { kind: 'recover', t: 0, dur: 0.65 * this.rageGap() };
+    this.cds.combo = rand(0.4, 0.8) * this.rageGap();
+    this.vx = 0; this.postPose = 0.25;
+    if (!this.onGround) return;
+    for (const d of [-1, 1]) Game.hazards.push(new Shockwave(this.x + d * 14, this.y, d, 260, 10 * this.dmgMul, this));
+    FX.ring(this.x, this.y - 2, 4, 44, 0.35, { sy: 0.35, c: '#ff6a7a', core: '#ffffff', w: 2 });
+    FX.dust(this.x, this.y, 14, { smax: 110 });
+    FX.debris(this.x, this.y - 1, 10, ['#4a4252', '#5c5464'], 220);
+    FX.decal('crack', this.x, this.y, { len: 20, n: 7 });
+    Game.shake(0.4); Game.hitstop(0.04);
+    Sound.play('slam');
+  }
+  // Its body is a wall during the red flash: only a dash carries you through to its back.
+  blockPassage(p) {
+    const rel = (p.x - this.x) * this.facing;
+    if (p.dead || p.dashT > 0 || rel < -2 || rel >= 7 || p.y < this.y - 80) return;
+    p.x = this.x + this.facing * 7;
+    if (p.vx * this.facing < 0) p.vx = 0;
+  }
+  // The red flash lands everywhere in front of it at once, a beat into the swing.
+  runPerilSwing(a, m, p) {
+    if (!a.resolved && a.t >= CLOSE_CONNECT) {
+      a.resolved = true;
+      const [cx, cy] = this.chest(), [pcx, pcy] = p.chest();
+      const behind = (p.x - this.x) * this.facing < -2;
+      if (!p.dead && !behind && dist(cx, cy, pcx, pcy) <= m.zone) {
+        a.landed = p.takeHit({ dmg: m.dmg * this.dmgMul, x: this.x, y: cy, kind: 'melee', source: this, knock: 430, unparryable: true, pierce: true, through: true }) === 'hit';
+        if (a.landed) {
+          p.vy = -320; p.onGround = false;
+          FX.sparks(pcx, pcy, 30, this.facing > 0 ? 0 : Math.PI, 1.6, 120, 420, { c0: '#ffffff', c1: '#ff5a6a', c2: '#781e2a' });
+          FX.flash('#ff1030', 0.4);
+          Game.hitstop(0.12); Game.shake(0.7);
+          Sound.play('slam');
+        }
+      }
+    }
+    if (a.t >= m.swing) {
+      this.attack = null;
+      if (!a.landed) { this.whiff(); return { mx: 0 }; }
+      this.act = { kind: 'recover', t: 0, dur: rand(0.55, 0.85) * this.rageGap() };
+      this.cds.combo = rand(0.3, 0.8) * this.rageGap();
+      this.postPose = 0.2;
+    }
+    return { mx: 0 };
+  }
+  // It committed to the red flash and hit nothing: wide open.
+  whiff() {
+    const p = Game.player;
+    if (!p.dead && (p.x - this.x) * this.facing < -2) p.perilDodge(this);
+    this.stunFor(2.6);
+    this.vx = this.facing * 140;
+    FX.sparks(this.x, this.cy, 20, -Math.PI / 2, TAU, 60, 220, { c0: '#ffffff', c1: '#ffd070', c2: '#a06010' });
+    FX.sparks(this.x + this.facing * 10, this.cy, 14, this.facing > 0 ? 0 : Math.PI, 1.2, 40, 160, { c0: '#ffffff', c1: '#ff8a9a', c2: '#781e2a' });
+    Sound.play('bossShieldBreak');
+    Game.slowmo(0.25, 0.5, true);
   }
   windingUp() {
     const a = this.act;
     if (!a) return false;
     return (a.kind === 'gun' && a.t < this.tele(0.45)) || (a.kind === 'melee' && a.phase === 'wind') ||
-      (a.kind === 'beam' && a.phase !== 'fire') || a.kind === 'grenade';
+      (a.kind === 'beam' && a.phase !== 'fire') || a.kind === 'grenade' || (a.kind === 'dive' && (a.phase === 'crouch' || a.phase === 'hang'));
   }
   stopLoops() { if (this.beamLoop) { this.beamLoop.stop(); this.beamLoop = null; } }
 
@@ -200,9 +395,9 @@ class Rival extends Enemy {
     this.t += dt; this.animT += dt; this.st += dt;
     this.hitFlash = Math.max(0, this.hitFlash - dt);
     if (this.spawning) {
+      if (this.intro) { this.updateIntro(dt); return; }
       this.spawnT -= dt;
       if (this.spawnT <= 0) {
-        this.spawning = false;
         FX.ring(this.x, this.y - 2, 3, 46, 0.4, { sy: 0.35, c: '#4af0ff', core: '#ffffff', w: 2 });
         FX.sparks(this.x, this.cy, 30, -Math.PI / 2, TAU, 60, 260, { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a' });
         FX.dust(this.x, this.y, 14, { smax: 90 });
@@ -210,14 +405,17 @@ class Rival extends Enemy {
         Sound.play('shockwave', { power: 0.8 });
         Sound.play('bossRoar');
         Game.shake(0.45);
-        if (!this.duel) Game.announce(this.name, 'TETHER ITS GRENADE, SLASH IT BACK', '#4af0ff', 2.6);
-        this.act = { kind: 'intro', t: 0 };
+        this.arrive(true);
       }
       return;
     }
     for (const k in this.cds) this.cds[k] -= dt * (k === 'dash' || k === 'zip' ? 1 : S.enemies.aggression);
     for (const k of ['flinchT', 'hurtT', 'spinT', 'postPose', 'dodgeT', 'jumpCD', 'deflectT', 'guardT', 'parryInvulnT', 'transT']) if (this[k] > 0) this[k] = Math.max(0, this[k] - dt);
     if (this.dashCharges < 2) { this.dashRecharge += dt; if (this.dashRecharge >= 1.2) { this.dashCharges++; this.dashRecharge = 0; } }
+    // the riposte's and red flash's bullet time lasts exactly as long as the wind-up
+    const a0 = this.act;
+    if (Game.btOwner === this && (Game.btKind === 'riposte' || Game.btKind === 'peril') && !(a0 && a0.move === Game.btKind && a0.phase === 'wind')) Game.endBulletTime();
+    if (this.perilFlash > 0) this.perilFlash = Math.max(0, this.perilFlash - dt);
     if (this.dropThrough) { this.dropT -= dt; if (this.dropT <= 0) this.dropThrough = false; }
     if (this.grenade && this.grenade.dead) { this.grenade = null; this.cds.grenade = rand(6, 9); }
     // the beam hum follows the beam, so it can never outlive it
@@ -225,6 +423,7 @@ class Rival extends Enemy {
     if (hum && !this.beamLoop) this.beamLoop = Sound.loop('beam');
     else if (!hum && this.beamLoop) this.stopLoops();
     if (this.dying) { this.updateDying(dt); return; }
+    if (this.storm && !Game.cineActive()) this.updateStorm(dt);
     if (this.phase === 1 && this.hp <= this.maxHp / 2) this.enterPhase2();
     if (this.phase === 1 && !this.shield) {
       this.shieldDownT -= dt;
@@ -235,7 +434,6 @@ class Rival extends Enemy {
     let intent = { mx: 0, jump: false, drop: false };
     if (this.stunT > 0) {
       this.stunT -= dt;
-      if (Math.random() < 0.3) FX.elec(this.x, this.y - 10, 10, 1, { outer: '#2ab8d8', core: '#ffffff' });
     } else if (this.flinchT > 0) {
       // recoiling from a parry
     } else {
@@ -259,7 +457,8 @@ class Rival extends Enemy {
       this.pal = AEGIS_PAL_P2; this.shield = false; this.act = null; this.transT = 0.3; this.cds.combo = 1.2;
       FX.ring(this.x, this.cy, 4, 60, 0.4, { c: '#ff6a7a', core: '#ffffff', w: 2 });
       Sound.play('bossRoar');
-      Game.announce('MELEE DUEL', 'PARRY A SWING, THEN PARRY ITS RIPOSTE', '#ff6a7a', 2.2);
+      Game.announce('MELEE DUEL', null, '#ff6a7a', 2.2);
+      this.startStorm();
       return;
     }
     const hadShield = this.shield, p = Game.player;
@@ -354,13 +553,48 @@ class Rival extends Enemy {
     Game.closeCine();
     // a breather before the first combo
     this.act = null; this.transT = 0.3; this.cds.combo = 1.2; this.riseV = 0; this.hover = false;
-    Game.announce(this.duel ? 'MELEE DUEL' : 'PHASE 2', 'PARRY A SWING, THEN PARRY ITS RIPOSTE', '#ff6a7a', 2.2);
+    Game.announce(this.duel ? 'MELEE DUEL' : 'PHASE 2', null, '#ff6a7a', 2.2);
+    this.startStorm();
+  }
+  // The melee phase opens with the street erupting: beams burst out of the ground and hold for a few seconds.
+  startStorm() { this.storm = { t: 0, dur: 12, next: 0.3, n: 0 }; }
+  updateStorm(dt) {
+    const st = this.storm;
+    st.t += dt; st.next -= dt;
+    if (st.t >= st.dur) { this.storm = null; return; }
+    if (st.next > 0) return;
+    // a pair to open, then one at a time, never more than three standing
+    for (let i = st.n === 0 ? 2 : 1; i > 0; i--, st.n++) this.spawnEruption();
+    st.next = rand(2.0, 3.2);
+  }
+  spawnEruption() {
+    const p = Game.player, beams = Game.hazards.filter((h) => h instanceof GroundEruption);
+    if (beams.length >= 3) return;
+    for (let tries = 0; tries < 10; tries++) {
+      const x = clamp(p.x + (chance(0.5) ? 1 : -1) * rand(70, 240), 40, Level.W - 40);
+      if (Math.abs(x - p.x) < 60 || beams.some((h) => Math.abs(h.x - x) < 50)) continue;
+      Game.hazards.push(new GroundEruption(x, Level.GROUND, 12 * this.dmgMul));
+      return;
+    }
   }
   chooseAct(p) {
     const dx = p.x - this.x, adx = Math.abs(dx), dy = p.y - this.y;
     if (p.dead) return;
     if (this.phase === 2) {
-      if (this.cds.combo <= 0 && Math.abs(dy) < 40 && adx < 150) {
+      const near = Math.abs(dy) < 40 && adx < 150;
+      // out of reach: walk or dash in, throw a blade wave, or dive bomb
+      if (!near && this.cds.combo <= 0 && this.cds.closer <= 0 && adx < 340) {
+        this.cds.closer = rand(0.5, 0.9);
+        const opts = ['walk'];
+        if (this.cds.wave <= 0 && Math.abs(dy) < 30 && adx > 100) opts.push('wave', 'wave');
+        if (this.cds.dive <= 0 && adx > 70 && dy > -90) opts.push('dive', 'dive');
+        const c = pick(opts);
+        if (c === 'wave') { this.startMove('wave', chance(0.35) ? { list: ['wave', 'waveAir'], i: 0 } : null); this.cds.wave = rand(3.5, 5.5); return; }
+        if (c === 'dive') { this.startDive(p); this.cds.dive = rand(4, 6.5); return; }
+      }
+      if (this.cds.combo <= 0 && near) {
+        // sometimes it opens with a guard and waits for you to swing into it
+        if (adx < 120 && this.cds.guard <= 0 && chance(0.3)) { this.raiseGuard(rand(1.3, 1.8), 'stance'); this.cds.guard = rand(5, 8); return; }
         const options = adx > 80 ? RIVAL_COMBOS.filter((c) => c[0] === 'thrust') : RIVAL_COMBOS;
         const combo = pick(options);
         this.startMove(combo[0], { list: combo, i: 0 });
@@ -377,6 +611,11 @@ class Rival extends Enemy {
     this.act = { kind: 'melee', move: name, m: RIVAL_MOVES[name], phase: 'wind', t: 0, combo };
     this.facing = sign(Game.player.x - this.x) || this.facing;
     Sound.play('enemyWindup', { pm: name === 'riposte' ? 1.4 : 0.6 });
+    if (RIVAL_MOVES[name].air && this.onGround) {
+      this.vy = -320; this.onGround = false;
+      Sound.play('jump');
+      FX.dust(this.x, this.y, 4, { smax: 40 });
+    }
   }
   runAct(dt, p) {
     const a = this.act;
@@ -387,15 +626,19 @@ class Rival extends Enemy {
         if (a.t > 1.1) this.act = null;
         return { mx: 0 };
       case 'enrage': return this.runEnrage(dt, a, p);
-      case 'guard':
+      case 'guard': {
         this.facing = sign(p.x - this.x) || this.facing;
         if (Math.random() < 0.4) FX.sparks(this.x + this.facing * 8, this.y - 13, 1, -Math.PI / 2, 1.5, 20, 60, { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a', g: 0 });
-        if (this.guardT <= 0) { this.act = null; this.cds.combo = 0.2; }
-        return { mx: 0 };
+        // waiting it out works: the guard drops and it attacks straight away
+        if (this.guardT <= 0) { this.act = null; this.cds.combo = a.why === 'stance' ? 0 : 0.2; }
+        const creep = a.why === 'stance' && Math.abs(p.x - this.x) > 40;
+        return { mx: creep ? sign(p.x - this.x) * 0.3 : 0 };
+      }
       case 'recover':
         if (a.t > a.dur) this.act = null;
         return { mx: 0 };
       case 'melee': return this.runMelee(dt, a, p);
+      case 'dive': return this.runDive(dt, a, p);
       case 'gun': {
         this.facing = Math.cos(this.aimAngle) >= 0 ? 1 : -1;
         const tele = this.tele(0.45);
@@ -443,41 +686,53 @@ class Rival extends Enemy {
   runMelee(dt, a, p) {
     const m = a.m;
     const [cx, cy] = this.chest();
+    if (m.zone && !a.resolved) this.blockPassage(p);
     if (a.phase === 'wind') {
-      this.facing = sign(p.x - this.x) || this.facing;
+      if (!m.zone) this.facing = sign(p.x - this.x) || this.facing;
       const wind = this.tele(m.wind);
-      if (!a.glinted && a.t >= Math.max(0, wind - GLINT_LEAD)) {
+      if (!a.glinted && a.t >= Math.max(0, wind - (m.close ? CUE_LEAD : GLINT_LEAD))) {
         a.glinted = true;
-        const col = a.move === 'riposte' ? '#ffd070' : this.phase === 2 ? '#ff9aaa' : '#9af4ff';
-        const at = this._bladeGlint || this.chest();
-        FX.glint(at[0], at[1], { c: col, size: 1.25, follow: () => this._bladeGlint });
+        if (m.close) this.eyeGlint(m.unparryable ? PERIL_RED : '#ffd070', 2.2);
+        else {
+          const at = this._bladeGlint || this.chest();
+          FX.glint(at[0], at[1], { c: this.phase === 2 ? '#ff9aaa' : '#9af4ff', size: 1.25, follow: () => this._bladeGlint });
+        }
         Sound.play('glint');
       }
       if (a.t >= wind) {
         a.phase = 'swing'; a.t = 0; a.hit = false; a.quaked = false;
+        if (m.close && Game.btOwner === this) Game.endBulletTime();
         let ang = this.aimAngle, dir = this.facing;
         if (m.spin) ang = -Math.PI / 2;
+        if (m.zone) ang = this.facing > 0 ? 0 : Math.PI;
         if (m.rising) dir = -this.facing;
         if (m.thrust) { ang = this.facing > 0 ? 0 : Math.PI; this.lungeT = 0.16; this.lungeV = this.facing * 560; }
-        else if (a.move === 'riposte') {
-          // the riposte closes whatever gap your counter opened
+        else if (m.close && !m.zone) {
+          // the riposte closes whatever gap you opened
           const gap = Math.max(0, Math.abs(p.x - this.x) - 18);
           this.lungeT = 0.14; this.lungeV = this.facing * Math.min(2200, gap / 0.14);
         } else if (m.lunge) this.vx = this.facing * m.lunge;
         if (m.rising) this.vy = -240;
+        if (m.wave) this.fireWave();
+        if (m.zone) {
+          FX.slashLine(cx, cy, cx + this.facing * m.zone, cy - 6, { w: 4, dur: 0.35, pal: PALETTES.red });
+          FX.light(cx + this.facing * 60, cy, 140, PERIL_RED, 1, 0.3);
+          Game.shake(0.3);
+        }
         this.attack = { stage: 3, t: 0, sweep: m.swing * 0.6, dur: m.swing, dir, span: m.span, ang };
         if (!m.thrust) {
-          FX.swoosh({ x: cx, y: cy, follow: this, ox: 0, oy: -12, r: m.r, span: m.span, ang, dir, sweep: m.swing * 0.6, dur: m.swing + 0.12, thick: m.r > 50 ? 16 : 12, pal: a.move === 'riposte' ? PALETTES.gold : PALETTES.cyan, trail: 0.95 });
+          FX.swoosh({ x: cx, y: cy, follow: this, ox: 0, oy: -12, r: m.r, span: m.span, ang, dir, sweep: m.swing * 0.6, dur: m.swing + 0.12, thick: m.r > 50 ? 16 : 12, pal: m.unparryable ? PALETTES.red : a.move === 'riposte' ? PALETTES.gold : PALETTES.cyan, trail: 0.95 });
         } else FX.slashLine(cx, cy, cx + this.facing * 70, cy, { w: 3, dur: 0.25, pal: PALETTES.cyan });
         Sound.play('swing', { stage: m.r > 50 || m.spin ? 3 : 1 });
       }
-      return { mx: m.thrust || adxNear(this, p) ? 0 : sign(p.x - this.x) * 0.5 };
+      return { mx: m.thrust || m.air || adxNear(this, p) ? 0 : sign(p.x - this.x) * 0.5 };
     }
     this.attack.t = a.t;
+    if (m.zone) return this.runPerilSwing(a, m, p);
     if (!a.hit && !p.dead) {
       let hit = false;
       if (m.thrust) hit = segRect(cx, cy, cx + this.facing * 26, cy, 6, p.x - p.w / 2, p.y - p.h, p.w, p.h);
-      else if (a.t > 0.02 && a.t < m.swing * 0.8) hit = sectorRect(cx, cy, m.r + 2, this.attack.ang, m.span, p.x - p.w / 2, p.y - p.h, p.w, p.h);
+      else if (a.t > (m.close ? CLOSE_CONNECT : 0.02) && a.t < m.swing * 0.8) hit = sectorRect(cx, cy, m.r + 2, this.attack.ang, m.span, p.x - p.w / 2, p.y - p.h, p.w, p.h);
       if (hit) {
         a.hit = true;
         p.takeHit({ dmg: m.dmg * this.dmgMul, x: this.x, y: cy, kind: 'melee', source: this, knock: m.quake ? 280 : m.rising ? 160 : 220 });
@@ -564,14 +819,17 @@ class Rival extends Enemy {
     return { mx: mx * speedMul, jump, drop };
   }
   react(p) {
-    // with the shield down it dodges incoming swings like a player would
+    // with the shield down it answers incoming swings like a player would
     // only while idle or approaching: its recovery is your punish window, so it never rolls out of it
-    if (this.shield || this.dashCharges <= 0 || this.act || this.cds.dodge > 0) return;
+    if (this.shield || this.act || this.cds.dodge > 0) return;
     const threat = p.attack || p.iaido;
-    if (threat && !this.dodged.has(threat) && dist(p.x, p.y, this.x, this.y) < 64) {
-      this.dodged.add(threat);
-      if (chance(this.phase === 2 ? 0.3 : 0.4)) { this.dash(-sign(p.x - this.x) || 1, -0.3); this.cds.dodge = 2.5; }
-    }
+    if (!threat || this.dodged.has(threat) || dist(p.x, p.y, this.x, this.y) >= 70) return;
+    this.dodged.add(threat);
+    const r = Math.random();
+    // phase 2 reads attacks, heavies most of all, and blocks them to start the riposte exchange
+    const block = this.phase === 2 && this.cds.guard <= 0 ? (threat.heavy || (threat.cfg && threat.cfg.heavy) ? 0.55 : 0.25) : 0;
+    if (r < block) { this.raiseGuard(0.6, 'read'); this.cds.guard = rand(3, 5); this.cds.dodge = 1.5; return; }
+    if (this.dashCharges > 0 && r < block + (this.phase === 2 ? 0.25 : 0.4)) { this.dash(-sign(p.x - this.x) || 1, -0.3); this.cds.dodge = 2.5; }
   }
   dash(dx, dy) {
     const l = Math.hypot(dx, dy) || 1;
@@ -606,6 +864,9 @@ class Rival extends Enemy {
       this.vx = (dx / d) * T.spd; this.vy = (dy / d) * T.spd;
       this.facing = dx >= 0 ? 1 : -1;
       if (d < 12 || this.stunT > 0 || T.t > 1.4) { this.tether = null; this.vy = -140; this.vx *= 0.3; this.airJumps = 1; }
+    } else if (this.act && this.act.kind === 'dive' && (this.act.phase === 'hang' || this.act.phase === 'dive')) {
+      const a = this.act;
+      if (a.phase === 'hang') { this.vx = 0; this.vy = 0; } else { this.vx = a.vx; this.vy = a.vy; }
     } else if (this.hover) {
       this.vx = approach(this.vx, 0, 400 * dt);
       this.vy = approach(this.vy, this.riseV || Math.sin(this.t * 4) * 8, 600 * dt);
@@ -630,7 +891,7 @@ class Rival extends Enemy {
       }
       if (intent.drop && this.onGround) { this.dropThrough = true; this.dropT = 0.22; this.vy = 40; this.onGround = false; }
     }
-    Level.moveBody(this, dt, { step: 11, ghostCover: this.dashT > 0 || this.lungeT > 0 || !!this.tether });
+    Level.moveBody(this, dt, { step: 11 });
     if (this.onGround) {
       this.airJumps = 1;
       if (!wasGround && preVy > 220) { FX.dust(this.x, this.y, 4, { smax: 40 }); this.landSquash = 0.12; }
@@ -639,6 +900,134 @@ class Rival extends Enemy {
     if (this.landSquash > 0) this.landSquash -= dt;
     if (this.x < 44) this.x = 44;
     if (this.x > Level.W - 44) this.x = Level.W - 44;
+  }
+
+  // ---------- entry ----------
+  // From here it fights. quick: the short beam drop (training, duel retries); otherwise the cutscene showed the title.
+  arrive(quick) {
+    this.spawning = false;
+    if (quick && !this.duel && !this.trainP2) Game.announce(this.name, null, '#4af0ff', 2.6);
+    this.act = { kind: 'intro', t: quick ? 0 : 0.6 };
+  }
+  updateIntro(dt) {
+    const I = this.intro, p = Game.player;
+    if (!I.started) {
+      I.started = true;
+      if (!p.dead) Game.startCine({ kind: 'rivalIntro', focus: this, owner: this, camOY: -26 });
+    }
+    const C = Game.cine, own = C && C.owner === this;
+    I.t += dt;
+    const ct = (I.ct = own ? C.t : I.t);
+    const once = (k) => (I.done[k] ? false : (I.done[k] = true));
+    const x = this.x, gy = this.y, CY = { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a' };
+    const grit = ['#4a4252', '#5c5464', '#3a3442', '#6e6678'];
+    this.facing = sign(p.x - this.x) || this.facing;
+    if (ct < 0.75) {
+      I.stage = 'gather';
+      if (once('rumble')) { Sound.play('beaconRumble'); FX.decal('crack', x, gy, { len: 14, n: 6, dur: 14 }); }
+      // energy crawls in along the street and motes rise off the cracks
+      if (Math.random() < 0.8) {
+        const s = chance(0.5) ? 1 : -1, d = rand(24, 70);
+        FX.sparks(x + s * d, gy - 1, 1, s > 0 ? Math.PI : 0, 0.2, d * 1.6, d * 2, Object.assign({ g: 0, life: 1.6 }, CY));
+      }
+      if (Math.random() < 0.5) FX.sparks(x + rand(-8, 8), gy - 1, 1, -Math.PI / 2, 0.4, 30, 90, Object.assign({ g: -40, life: 1.4 }, CY));
+      if (Math.random() < 0.15) FX.debris(x + rand(-20, 20), gy - 1, 1, grit, 60);
+      Game.shake(0.012 + ct * 0.02);
+    } else if (ct < 2.0) {
+      I.stage = 'erupt';
+      if (once('erupt')) {
+        Sound.play('beaconErupt');
+        FX.flash('#bff8ff', 0.55);
+        FX.ring(x, gy - 1, 4, 120, 0.6, { sy: 0.3, c: '#4af0ff', core: '#ffffff', w: 2 });
+        FX.ring(x, gy - 1, 3, 70, 0.45, { sy: 0.3, c: '#ffffff', core: '#bff8ff', w: 1 });
+        FX.debris(x, gy - 1, 34, grit, 340);
+        FX.dust(x, gy, 26, { smin: 60, smax: 220, rise: 10, r1: 7 });
+        FX.decal('crack', x, gy, { len: 32, n: 9, dur: 14 });
+        FX.sparks(x, gy - 10, 50, -Math.PI / 2, 1.2, 120, 440, CY);
+        FX.light(x, gy - 60, 260, '#4af0ff', 1, 0.8);
+        Game.shake(0.75);
+      }
+      if (Math.random() < 0.9) FX.sparks(x + rand(-7, 7), gy - rand(0, 120), 1, -Math.PI / 2, 0.3, 120, 300, Object.assign({ g: -100 }, CY));
+      if (Math.random() < 0.25) {
+        const yy = gy - rand(10, 130), s = chance(0.5) ? 1 : -1;
+        FX.bolt(x + s * 8, yy, x + s * rand(24, 50), yy + rand(-20, 20), 0.08, { outer: '#2ab8d8', core: '#ffffff', jag: 6 });
+      }
+      if (Math.random() < 0.3) FX.debris(x + rand(-14, 14), gy - 1, 1, grit, 200);
+      if ((I.pulse = (I.pulse || 0) - dt) <= 0) { I.pulse = 0.32; FX.ring(x, gy - 1, 6, 50, 0.35, { sy: 0.3, c: '#4af0ff', core: '#ffffff', w: 1 }); }
+      Game.shake(0.025);
+    } else if (ct < 2.55) {
+      I.stage = 'emerge';
+      if (once('emerge')) Sound.play('enrageCharge');
+      if (Math.random() < 0.6) FX.sparks(x + rand(-5, 5), gy - rand(0, 24), 1, -Math.PI / 2, 0.5, 60, 160, Object.assign({ g: -60 }, CY));
+    } else if (ct < 3.1) {
+      I.stage = 'rise';
+      if (once('reveal')) {
+        FX.ring(x, this.cy, 4, 70, 0.4, { c: '#4af0ff', core: '#ffffff', w: 2 });
+        FX.sparks(x, this.cy, 40, 0, TAU, 80, 300, CY);
+        FX.elec(x, this.cy, 26, 10, { outer: '#2ab8d8', core: '#ffffff' });
+        FX.flash('#ffffff', 0.4);
+        Sound.play('shockwave', { power: 0.6 });
+        Sound.play('shieldUp');
+        Game.shake(0.4);
+      }
+      if (ct >= 2.85 && once('visor')) {
+        const [vx, vy] = this.visorPos();
+        FX.light(vx, vy, 40, '#4af0ff', 1, 0.4);
+        FX.ring(vx, vy, 1, 10, 0.2, { c: '#4af0ff', core: '#ffffff', w: 1 });
+        Sound.play('glint');
+      }
+    } else {
+      I.stage = 'title';
+      if (once('title')) {
+        if (own) { C.zoom = 2; C.zoomOY = 10; C.big = { style: 'title', text: this.name, color: '#4af0ff', tag: 'RIVAL FRAME', sub: this.duel ? 'MELEE DUEL' : 'SECTOR 9 ENFORCER' }; C.bigT = 0; }
+        Sound.play('titleHit');
+        Sound.play('bossRoar');
+        FX.ring(x, this.cy, 4, 90, 0.5, { c: '#4af0ff', core: '#ffffff', w: 2 });
+        FX.dust(x, gy, 16, { smin: 40, smax: 150, rise: 6, r1: 5 });
+        Game.shake(0.5);
+      }
+      if (Math.random() < 0.3) FX.sparks(x + rand(-6, 6), gy - rand(4, 20), 1, -Math.PI / 2, 1, 20, 60, Object.assign({ g: -40 }, CY));
+      if (ct >= 4.8 && once('end')) this.endIntro();
+    }
+    this.updateScarf(dt);
+  }
+  endIntro() {
+    this.intro = null;
+    if (Game.cine && Game.cine.owner === this) Game.closeCine();
+    this.arrive(false);
+  }
+  introPose(o) {
+    const I = this.intro, ct = I.ct;
+    if (I.stage === 'rise') {
+      // stands up out of the kneel
+      const k = easeOutCubic(clamp((ct - 2.6) / 0.45, 0, 1));
+      o.lean = lerp(0.35, 0.05, k); o.hipY = lerp(-6, -10, k); o.fF = [5, -1]; o.fB = [lerp(-6, -5, k), -1];
+      o.hF = [lerp(5, 6, k), lerp(-16, -9, k)]; o.hB = [lerp(1, -3, k), lerp(-7, -8, k)]; o.swordAng = lerp(0.9, 2.2, k);
+    } else if (I.stage === 'title') {
+      o.hF = [7, -17]; o.hB = [-7, -17]; o.swordAng = -1.0; o.fF = [5, -1]; o.fB = [-5, -1]; o.tremble = ct < 3.6 ? 1 : 0;
+    } else {
+      // kneeling on its blade inside the beam
+      o.lean = 0.35; o.hipY = -6; o.fF = [5, -1]; o.fB = [-6, -1]; o.hF = [5, -16]; o.hB = [1, -7]; o.swordAng = 0.9;
+    }
+    return true;
+  }
+  drawIntro(ctx, x, y) {
+    const I = this.intro, ct = I.ct, t = this.t, top = -12;
+    if (I.stage === 'gather') {
+      // light pools at the spawn point; a thread from the sky flickers in at the end
+      const k = ct / 0.75;
+      ctx.fillStyle = '#145e6a'; pring(ctx, x, y - 1, 6 + k * 22, 0.25, 2);
+      ctx.fillStyle = ((t * 20) | 0) % 2 ? '#4af0ff' : '#bff8ff'; pring(ctx, x, y - 1, 3 + k * 16, 0.25, 1);
+      if (k > 0.55 && ((t * 30) | 0) % 3) { ctx.fillStyle = '#4af0ff'; ctx.fillRect(Math.round(x), top, 1, Math.round(y - top)); }
+      return;
+    }
+    let W = 0;
+    if (I.stage === 'erupt') W = 4 + 16 * easeOutBack(clamp((ct - 0.75) / 0.2, 0, 1)) + Math.sin(t * 50) * 1.5;
+    else if (I.stage === 'emerge') W = lerp(20, 9, clamp((ct - 2.0) / 0.4, 0, 1)) + Math.sin(t * 50);
+    else W = (1 - clamp((ct - 2.55) / 0.12, 0, 1)) * 9;
+    if (W > 0.5) drawEnergyBeam(ctx, x, y, top, W, t);
+    // a dark figure inside the light
+    if (I.stage === 'emerge' && this.spriteCopy) Sprite.outlined(ctx, this.spriteCopy, x, y, '#ffffff', { fill: '#0b0910' });
   }
 
   // ---------- knockout ----------
@@ -721,6 +1110,7 @@ class Rival extends Enemy {
   }
   // Hold-to-skip from Game: jump to the end of whichever cutscene this rival is running.
   skipCine() {
+    if (this.intro) { this.endIntro(); return; }
     if (this.act && this.act.kind === 'enrage') {
       this.pal = AEGIS_PAL_P2; this.hover = false; this.riseV = 0; this.vy = 300;
       this.endEnrage();
@@ -775,6 +1165,7 @@ class Rival extends Enemy {
   // ---------- drawing ----------
   drawFlash() {
     if (this.hitFlash > 0) return '#ffffff';
+    if (this.intro && this.intro.stage === 'rise' && this.intro.ct < 2.7) return '#ffffff';
     if (this.dying && this.ko && this.ko.stage === 'impact' && ((this.t * 40) | 0) % 2) return '#fff4d0';
     if (this.parryInvulnT > 0.3) return '#bff8ff';
     if (this.cutMark && ((this.t * 30) | 0) % 2) return '#4af0ff';
@@ -783,6 +1174,7 @@ class Rival extends Enemy {
   customPose(o, la) {
     const a = this.act;
     if (this.dying && this.ko) return this.koPose(o);
+    if (this.intro) return this.introPose(o);
     if (this.stunT > 0) {
       o.lean = 0.7; o.hipY = -5; o.fF = [5, -1]; o.fB = [-4, -1]; o.hF = [7, -4]; o.hB = [2, -6]; o.swordAng = 1.25;
       return true;
@@ -800,7 +1192,15 @@ class Rival extends Enemy {
       else if (mv === 'rise') { o.hipY = -7; o.hF = [-5, -5]; o.hB = [-3, -6]; o.swordAng = 2.6; }
       else if (mv === 'thrust') { o.lean = 0.35; o.hF = [-5, -12]; o.hB = [3, -11]; o.swordAng = 0; }
       else if (mv === 'spin') { o.hipY = -7; o.hF = [-6, -8]; o.hB = [4, -9]; o.swordAng = Math.PI; }
+      else if (mv === 'wave') { o.hipY = -6; o.lean = 0.15; o.hF = [-7, -9]; o.hB = [-3, -10]; o.swordAng = Math.PI + 0.4; }
+      else if (mv === 'waveAir') { o.lean = 0.15; o.fF = [4, -6]; o.fB = [-3, -4]; o.hF = [-7, -9]; o.hB = [-3, -10]; o.swordAng = Math.PI + 0.4; }
       else { o.hF = [-4, -11]; o.hB = [2, -8]; o.swordAng = Math.PI - 0.4; }
+      return true;
+    }
+    if (a.kind === 'dive') {
+      if (a.phase === 'crouch') { o.hipY = -5; o.lean = 0.3; o.fF = [6, -1]; o.fB = [-6, -1]; o.hF = [-4, -8]; o.hB = [-2, -9]; o.swordAng = Math.PI - 0.6; }
+      else if (a.phase === 'dive') { o.lean = 0.5; o.fF = [3, -6]; o.fB = [-4, -3]; o.hF = [9, -6]; o.hB = [5, -8]; o.swordAng = 0.9; }
+      else { o.lean = -0.15; o.fF = [4, -6]; o.fB = [-3, -4]; o.hF = [-3, -21]; o.hB = [-1, -19]; o.swordAng = -2.3; }
       return true;
     }
     if (a.kind === 'guard') {
@@ -851,12 +1251,16 @@ class Rival extends Enemy {
     this._handB = [this.x + J.HB[0] * this.facing, this.y + J.HB[1]];
   }
   draw(ctx, camX, camY) {
-    if (this.spawning) return;
+    // during the entry the body exists from the moment its silhouette shows in the beam
+    if (this.spawning && !(this.intro && this.intro.stage !== 'gather' && this.intro.stage !== 'erupt')) return;
     Player.prototype.draw.call(this, ctx, camX, camY);
   }
   drawEmissive(ctx, camX, camY) {
     const x = this.x - camX, y = this.y - camY;
-    if (this.spawning) {
+    if (this.spawning && this.intro) {
+      this.drawIntro(ctx, x, y);
+      if (this.intro.stage !== 'rise' && this.intro.stage !== 'title') return;
+    } else if (this.spawning) {
       const k = 1 - this.spawnT / 1.5, w = Math.max(1, Math.round((1 - k) * 5));
       if (((this.t * 30) | 0) % 3) {
         ctx.fillStyle = '#2ab8d8'; ctx.fillRect(Math.round(x) - w, -10, w * 2 + 1, Math.round(y + 10));
@@ -884,7 +1288,7 @@ class Rival extends Enemy {
       ctx.globalAlpha = 1;
       ctx.fillStyle = '#ffffff';
       for (let i = 0; i < this.cracks; i++) {
-        const a0 = -2.2 + i * 1.6;
+        const a0 = -2.2 + i * (TAU / SHIELD_CRACKS);
         pline(ctx, x + Math.cos(a0) * 14, cy + Math.sin(a0) * 16, x + Math.cos(a0 + 0.3) * 7, cy + Math.sin(a0 + 0.3) * 8, 1);
         pline(ctx, x + Math.cos(a0 + 0.3) * 7, cy + Math.sin(a0 + 0.3) * 8, x + Math.cos(a0 - 0.2) * 3, cy + Math.sin(a0 - 0.2) * 3, 1);
       }
@@ -894,11 +1298,36 @@ class Rival extends Enemy {
     }
     const a = this.act;
     if (a && a.kind === 'guard') {
-      // a distinct guard: cyan aura and a prompt, so its counter-parry isn't a surprise
-      ctx.fillStyle = '#4af0ff';
-      pring(ctx, x, y - 11, 14 + Math.sin(this.t * 14) * 1.5, 1.3, 1);
-      if (((this.t * 16) | 0) % 2) { ctx.fillStyle = '#ffffff'; pline(ctx, x + this.facing * 4, y - 16, x + this.facing * 16, y - 19, 1); }
-      if (((this.t * 6) | 0) % 2) drawText(ctx, 'GUARD - BAIT IT', x, y - 38, { color: '#4af0ff', align: 'center', outline: '#0b0910' });
+      // guarding: its visor stays lit (the tell itself is the glint as it raises the guard)
+      const [vx, vy] = this.visorPos();
+      ctx.fillStyle = ((this.t * 8) | 0) % 2 ? '#ffffff' : '#7af0ff';
+      ctx.fillRect(Math.round(vx - camX) - 1, Math.round(vy - camY), 3, 1);
+    }
+    if (this.stunT > 0 && !this.dying) {
+      // dazed: gold sparks circling its head
+      const [vx, vy] = this.visorPos();
+      for (let i = 0; i < 3; i++) {
+        const an = this.t * 5 + (i * TAU) / 3;
+        ctx.fillStyle = i ? '#ffd070' : '#ffffff';
+        ctx.fillRect(Math.round(vx - camX + Math.cos(an) * 7), Math.round(vy - camY - 7 + Math.sin(an) * 2), 1, 1);
+      }
+    }
+    if (a && a.kind === 'dive' && a.phase !== 'crouch') {
+      // where it will land: a mark on the street that blinks faster, then holds white once locked
+      const mx = Math.round(a.tx - camX), my = Math.round(a.ty - camY);
+      const on = a.locked || ((this.t * (a.phase === 'hang' ? 16 : 8)) | 0) % 2;
+      ctx.fillStyle = a.locked ? '#ffffff' : on ? '#ff6a7a' : '#ff9aaa';
+      pline(ctx, mx - 7, my - 3, mx + 7, my + 1, 1); pline(ctx, mx - 7, my + 1, mx + 7, my - 3, 1);
+      for (const d of [-1, 1]) { pline(ctx, mx + d * 12, my - 4, mx + d * 12, my + 1, 1); pline(ctx, mx + d * 12, my - 4, mx + d * 10, my - 4, 1); }
+      if (a.phase === 'hang' && a.locked) {
+        ctx.fillStyle = '#ff9aaa';
+        const L = Math.hypot(a.tx - this.x, a.ty - this.y) || 1;
+        for (let d = 12; d < L - 6; d += 6) ctx.fillRect(Math.round(x + ((a.tx - this.x) * d) / L), Math.round(y - 12 + ((a.ty - this.y) * d) / L), 1, 1);
+      }
+    }
+    if (a && a.move === 'peril' && a.phase === 'wind' && this.spriteCopy) {
+      if (this.perilFlash > 0) Sprite.outlined(ctx, this.spriteCopy, x, y, PERIL_RED, { glow: 0.6, fill: ((this.t * 30) | 0) % 2 ? '#ffffff' : PERIL_RED });
+      else if (Game.btOwner !== this) Sprite.outlined(ctx, this.spriteCopy, x, y, PERIL_RED, { glow: 0.35 });
     }
     if (a && a.kind === 'gun' && a.t < this.tele(0.45)) {
       const [gx, gy] = this.gunPos();
@@ -940,12 +1369,16 @@ class Rival extends Enemy {
       }
     }
     if (this.windingUp() && a.kind !== 'grenade' && ((this.t * 14) | 0) % 2 === 0) {
-      const riposte = a.move === 'riposte';
-      drawText(ctx, riposte ? '!!!' : '!!', x, y - 32, { color: riposte ? '#ffd070' : this.phase === 2 ? '#ff8a9a' : '#4af0ff', align: 'center' });
+      const big = a.move === 'riposte' || a.move === 'peril';
+      drawText(ctx, big ? '!!!' : '!!', x, y - 32, { color: a.move === 'peril' ? PERIL_RED : big ? '#ffd070' : this.phase === 2 ? '#ff8a9a' : '#4af0ff', align: 'center' });
     }
   }
   addLights() {
-    if (this.spawning) { FX.frameLight(this.x, this.y - 30, 80, '#4af0ff', 0.9); return; }
+    if (this.spawning && this.intro) {
+      const st = this.intro.stage;
+      if (st === 'gather') { FX.frameLight(this.x, this.y - 4, 30 + this.intro.ct * 40, '#4af0ff', 0.8); return; }
+      if (st === 'erupt' || st === 'emerge') { for (let d = 0; d < 220; d += 44) FX.frameLight(this.x, this.y - d, 80, '#4af0ff', 1); return; }
+    } else if (this.spawning) { FX.frameLight(this.x, this.y - 30, 80, '#4af0ff', 0.9); return; }
     if (this.dying && this.ko && this.pal === AEGIS_PAL_KO) return;
     const [vx, vy] = this.visorPos();
     FX.frameLight(vx, vy, 16, this.phase === 2 ? '#ffffff' : '#4af0ff', 0.9);
@@ -961,6 +1394,153 @@ for (const k of ['pose', 'updateScarf', 'makeGhost']) Rival.prototype[k] = Playe
 
 function adxNear(e, p) { return Math.abs(p.x - e.x) < 34; }
 
+// Column of energy from the street to the sky (the entry beacon and the phase-2 eruptions).
+function drawEnergyBeam(ctx, x, y, top, W, t) {
+  const xi = Math.round(x), h = Math.round(y - top);
+  const band = (w, col) => { const ww = Math.max(1, Math.round(w)); ctx.fillStyle = col; ctx.fillRect(xi - (ww >> 1), top, ww, h); };
+  ctx.globalAlpha = 0.45; band(W + 10, '#145e6a'); ctx.globalAlpha = 1;
+  band(W + 2, '#2ab8d8'); band(W * 0.7, '#7af0ff'); band(Math.max(2, W * 0.35), '#ffffff');
+  // pulses racing up the column
+  ctx.fillStyle = '#ffffff';
+  const bw = Math.round(W + 4);
+  for (let i = 0; i < 5; i++) ctx.fillRect(xi - (bw >> 1), Math.round(y - ((t * 340 + i * 53) % (h + 20))), bw, 2);
+  // ragged edges
+  ctx.fillStyle = '#bff8ff';
+  for (let yy = top; yy < y; yy += 3) {
+    if (Math.random() < 0.3) ctx.fillRect(xi + (Math.random() < 0.5 ? -1 : 1) * Math.round(W / 2 + 1 + Math.random() * 3), yy, 1, 2);
+  }
+  // flared base
+  ctx.fillStyle = '#4af0ff'; pring(ctx, x, y - 1, W * 1.4 + Math.sin(t * 30) * 2, 0.3, 2);
+  ctx.fillStyle = '#ffffff'; pring(ctx, x, y - 1, W * 0.8, 0.3, 1);
+}
+
+// A wide crescent of energy thrown off a full swing. It runs along the street: jump it, dash through it, or parry
+// it back (a slash passes straight through).
+class BladeWave {
+  constructor(x, y, dir, dmg) {
+    this.x = x; this.y = y; this.dir = dir; this.vx = dir * 330; this.vy = 0; this.dmg = dmg;
+    this.H = 34; this.hostile = true; this.life = 1.25; this.dead = false;
+    // only a parry sends it back; slashes pass through
+    this.parryOnly = true;
+  }
+  reflect(ang, mul, dmg) {
+    this.dir = Math.cos(ang) >= 0 ? 1 : -1;
+    this.vx = this.dir * 380; this.hostile = false; this.dmg = dmg + 10; this.life = 1.2;
+    FX.sparks(this.x, this.y, 12, ang, 1, 80, 240, { c0: '#ffffff', c1: '#ff5a6a', c2: '#8a0c22' });
+  }
+  fizzle() {
+    this.dead = true;
+    for (let i = 0; i < 6; i++) FX.sparks(this.x, this.y + rand(-this.H / 2, this.H / 2), 1, rand(0, TAU), TAU, 30, 120, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a' });
+  }
+  update(dt) {
+    this.life -= dt;
+    if (this.life <= 0) { this.fizzle(); return; }
+    for (let i = 0; i < 3; i++) {
+      this.x += (this.vx * dt) / 3;
+      if (Level.pointSolid(this.x + this.dir * 4, this.y)) { this.fizzle(); return; }
+      if (this.hostile) {
+        const p = Game.player;
+        if (!p.dead && Math.abs(p.x - this.x) < p.w / 2 + 4 && p.y > this.y - this.H / 2 && p.y - p.h < this.y + this.H / 2) {
+          const r = p.takeHit({ dmg: this.dmg, x: this.x - this.dir * 10, y: this.y, kind: 'projectile', proj: this, knock: 200 });
+          if (r === 'hit' || r === 'immune') { this.fizzle(); return; }
+          if (r === 'parried') return;
+        }
+      } else {
+        for (const e of Game.enemies) {
+          if (e.dead || e.spawning || Math.abs(e.x - this.x) > e.w / 2 + 4 || e.y < this.y - this.H / 2 || e.y - e.h > this.y + this.H / 2) continue;
+          hurtEnemy(e, this.dmg, { kx: this.vx * 0.3, ky: -80, heavy: true, cause: 'reflect', angle: this.dir > 0 ? 0 : Math.PI, stagger: 0.5, hitstop: 0.03 });
+          this.fizzle();
+          return;
+        }
+      }
+    }
+    if (Math.random() < 0.5) FX.sparks(this.x - this.dir * 4, this.y + rand(-this.H / 2, this.H / 2), 1, this.dir > 0 ? Math.PI : 0, 0.4, 20, 60, { c0: '#ffffff', c1: this.hostile ? '#7af0ff' : '#ff5a6a', c2: '#145e6a', g: 0 });
+  }
+  drawEmissive(ctx, camX, camY) {
+    const x = this.x - camX, y = this.y - camY, d = this.dir, half = this.H / 2;
+    const pal = this.hostile ? ['#145e6a', '#2ab8d8', '#bff8ff'] : ['#781e2a', '#ff2a48', '#ffb0b8'];
+    const fade = clamp(this.life / 0.2, 0, 1);
+    const row = (x0, x1, yy, col) => {
+      const l = Math.round(Math.min(x0, x1)), r = Math.round(Math.max(x0, x1));
+      ctx.fillStyle = col; ctx.fillRect(l, Math.round(y + yy), r - l + 1, 1);
+    };
+    // a crescent bulging the way it travels, thickest in the middle, with a faint wake
+    for (let yy = -half; yy <= half; yy++) {
+      const k = yy / half, front = x + d * (1 - k * k) * 8, th = 1 + (1 - Math.abs(k)) * 6;
+      ctx.globalAlpha = 0.35 * fade; row(front - d * (th + 10), front - d * th, yy, pal[0]);
+      ctx.globalAlpha = fade; row(front - d * th, front, yy, pal[1]);
+      row(front - d * Math.max(1, th * 0.5), front, yy, pal[2]);
+      row(front - d, front, yy, '#ffffff');
+    }
+    ctx.globalAlpha = 1;
+  }
+  addLights() { FX.frameLight(this.x, this.y, 40, this.hostile ? '#4af0ff' : '#ff3048', 0.9); }
+}
+
+// A patch of street cracks and glows, then erupts in a column of energy that holds for a few seconds.
+class GroundEruption {
+  constructor(x, y, dmg) {
+    this.x = x; this.y = y; this.dmg = dmg; this.W = 14;
+    this.t = 0; this.warn = 0.8; this.hold = 2.6; this.fade = 0.3; this.dead = false; this.up = false;
+    FX.decal('crack', x, y, { len: 12, n: 5 });
+    if (Math.abs(x - Game.player.x) < 320) Sound.play('eruptWarn', { dur: this.warn });
+  }
+  update(dt) {
+    this.t += dt;
+    if (this.t >= this.warn + this.hold + this.fade) { this.dead = true; return; }
+    if (this.t < this.warn) {
+      if (Math.random() < 0.5) FX.sparks(this.x + rand(-6, 6), this.y - 1, 1, -Math.PI / 2, 0.4, 30, 90, { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a', g: -60 });
+      return;
+    }
+    if (!this.up) this.erupt();
+    if (this.t >= this.warn + this.hold) return;
+    if (Math.random() < 0.4) FX.sparks(this.x + rand(-5, 5), this.y - rand(0, 140), 1, -Math.PI / 2, 0.6, 40, 140, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a', g: -80 });
+    const p = Game.player;
+    // the column runs from the street to the sky, so rooftops are no refuge
+    if (!p.dead && p.y <= this.y + 2 && Math.abs(p.x - this.x) < this.W / 2 + p.w / 2) {
+      p.takeHit({ dmg: this.dmg, x: this.x, y: p.cy, kind: 'hazard', knock: 220, unparryable: true });
+    }
+  }
+  erupt() {
+    this.up = true;
+    const near = Math.abs(this.x - Game.player.x) < 320;
+    FX.ring(this.x, this.y - 2, 3, 30, 0.35, { sy: 0.35, c: '#4af0ff', core: '#ffffff', w: 2 });
+    FX.sparks(this.x, this.y - 2, 18, -Math.PI / 2, 1.2, 80, 320, { c0: '#ffffff', c1: '#7af0ff', c2: '#145e6a' });
+    FX.dust(this.x, this.y, 8, { smax: 80 });
+    FX.debris(this.x, this.y - 1, 6, ['#4a4252', '#5c5464'], 200);
+    FX.light(this.x, this.y - 30, 90, '#4af0ff', 1, 0.3);
+    if (near) { Sound.play('eruptBeam'); Game.shake(0.15); }
+  }
+  drawEmissive(ctx, camX, camY) {
+    const x = this.x - camX, y = this.y - camY, t = this.t;
+    if (t < this.warn) {
+      // glowing crack, quickening blink, and a faint dotted line where the column will stand
+      const k = t / this.warn, on = ((t * (6 + k * 18)) | 0) % 2;
+      ctx.globalAlpha = 0.25 + 0.35 * k; ctx.fillStyle = '#2ab8d8';
+      pdisc(ctx, x, y - 1, 3 + k * 6);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = on ? '#ffffff' : '#4af0ff';
+      pring(ctx, x, y - 1, 6 + k * 10, 0.3, 1);
+      pring(ctx, x, y - 1, 22 - k * 12, 0.3, 1);
+      if (k > 0.2) {
+        ctx.globalAlpha = on ? 0.8 : 0.4;
+        ctx.fillStyle = '#7af0ff';
+        for (let yy = y - 4 - (((t * 120) | 0) % 6); yy > -10; yy -= 6) ctx.fillRect(Math.round(x) - 1, Math.round(yy), 2, 3);
+        ctx.globalAlpha = 1;
+      }
+      return;
+    }
+    const h = t - this.warn, f = h > this.hold ? (h - this.hold) / this.fade : 0;
+    // overshoots wide as it bursts, then settles; thins out as it collapses
+    const W = this.W * (h < 0.12 ? lerp(2, 1, h / 0.12) : 1) * (1 - f) + Math.sin(t * 25);
+    if (W > 0.5) drawEnergyBeam(ctx, x, y, -10, W, t);
+  }
+  addLights() {
+    if (this.t < this.warn) { FX.frameLight(this.x, this.y - 4, 18 + 14 * (this.t / this.warn), '#4af0ff', 0.8); return; }
+    for (const yy of [8, 70, 140]) FX.frameLight(this.x, this.y - yy, 46, '#4af0ff', 0.9);
+  }
+}
+
 // Ground ellipse showing where a grenade blast will reach.
 function drawBlastZone(ctx, x, y, R, t) {
   const blink = ((t * 12) | 0) % 2, n = 44;
@@ -974,8 +1554,8 @@ function drawBlastZone(ctx, x, y, R, t) {
 }
 
 // Pulse grenade: lobbed on an arc, it detonates the moment it touches anything. A hostile blast knocks the
-// player's shield offline. Tether it in flight to slow time, reel in and slash it back toward the cursor;
-// a rebounded grenade breaks the rival's shield. A parry smothers it; any other sword hit sets it off.
+// player's shield offline. Tether it in flight to slow time, reel in and kick it back toward the cursor;
+// a rebounded grenade breaks the rival's shield. A parry smothers it; any sword hit sets it off.
 class PulseGrenade {
   // o: { g, R, dmg, disable (seconds the blast knocks your shield out), size } for smaller throwers
   constructor(x, y, vx, vy, owner, o = {}) {
@@ -989,16 +1569,13 @@ class PulseGrenade {
   get cy() { return this.y; }
   get tetherable() { return this.state === 'flying' && !this.dead; }
   catch() { this.state = 'caught'; this.hostile = false; this.impact = null; }
-  bat(ang) {
-    this.state = 'batted'; this.hostile = false;
+  kick(ang) {
+    this.state = 'kicked'; this.hostile = false;
     this.vx = Math.cos(ang) * 600; this.vy = Math.sin(ang) * 600;
     this.fuse = Math.max(this.fuse, 2);
   }
   reflect() { this.explode({ blocked: true }); }
-  onSlash() {
-    Game.announce('TETHER IT FIRST', 'TETHER THE GRENADE, THEN SLASH IT BACK', '#4af0ff', 1.8, true);
-    this.explode();
-  }
+  onSlash() { this.explode(); }
   update(dt) {
     this.t += dt;
     if (this.state !== 'caught') this.fuse -= dt;
@@ -1014,8 +1591,8 @@ class PulseGrenade {
       }
       this.state = 'flying'; this.hostile = true;
     }
-    const owner = this.owner, batted = this.state === 'batted';
-    if (batted && owner && !owner.dead && !owner.dying) {
+    const owner = this.owner, kicked = this.state === 'kicked';
+    if (kicked && owner && !owner.dead && !owner.dying) {
       // light homing so a rough slash still finds it
       const want = Math.atan2(owner.cy - this.y, owner.x - this.x), cur = Math.atan2(this.vy, this.vx), d = angDiff(cur, want);
       if (Math.abs(d) < 1.0) {
@@ -1023,14 +1600,14 @@ class PulseGrenade {
         this.vx = Math.cos(na) * sp; this.vy = Math.sin(na) * sp;
       }
     }
-    this.vy += (batted ? 120 : this.g) * dt;
+    this.vy += (kicked ? 120 : this.g) * dt;
     for (let i = 0; i < 3; i++) {
       const py = this.y;
       this.x += (this.vx * dt) / 3; this.y += (this.vy * dt) / 3;
       if (this.contact(py)) return;
     }
     if (this.hostile && (this.predT -= dt) <= 0) { this.predT = 0.05; this.impact = this.predict(); }
-    if (Math.random() < 0.6) FX.sparks(this.x, this.y, 1, rand(0, TAU), TAU, 20, 60, batted ? { c0: '#ffffff', c1: '#ffd070', c2: '#ff3a52', g: 0 } : { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a', g: 0 });
+    if (Math.random() < 0.6) FX.sparks(this.x, this.y, 1, rand(0, TAU), TAU, 20, 60, kicked ? { c0: '#ffffff', c1: '#ffd070', c2: '#ff3a52', g: 0 } : { c0: '#ffffff', c1: '#4af0ff', c2: '#145e6a', g: 0 });
   }
   // Explodes on terrain, platforms, barrels, the player (while hostile) or any enemy (once rebounded).
   contact(py) {
@@ -1069,12 +1646,11 @@ class PulseGrenade {
     if (o.blocked) {
       FX.ring(this.x, this.y, 3, 30, 0.3, { c: '#ffd070', core: '#ffffff', w: 2 });
       FX.sparks(this.x, this.y, 20, 0, TAU, 60, 220, { c0: '#ffffff', c1: '#ffe080', c2: '#145e6a' });
-      FX.text('BLOCKED', this.x, this.y - 14, { c: '#ffd070', always: true, dur: 0.7, vy: -24 });
       Sound.play('blocked');
       Game.shake(0.2);
       return;
     }
-    const friendly = this.state === 'batted';
+    const friendly = this.state === 'kicked';
     if (friendly) {
       if (owner && !owner.dead && dist(this.x, this.y, owner.x, owner.cy) < R + 6) owner.pulseHit();
       for (const e of Game.enemies) {

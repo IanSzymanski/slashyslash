@@ -45,6 +45,31 @@ const Sprite = {
     ctx.globalAlpha = 1;
     return { dx, dy };
   },
+  // A solid-colour copy of a sprite in a shared buffer (overwritten by the next call).
+  tint(src, color) {
+    const c = this.tintBuf || (this.tintBuf = makeCanvas(this.SIZE, this.SIZE)), g = c.ctx;
+    g.globalCompositeOperation = 'source-over';
+    g.clearRect(0, 0, this.SIZE, this.SIZE);
+    g.drawImage(src, 0, 0);
+    g.globalCompositeOperation = 'source-in';
+    g.fillStyle = color;
+    g.fillRect(0, 0, this.SIZE, this.SIZE);
+    g.globalCompositeOperation = 'source-over';
+    return c;
+  },
+  // Redraws a body's last sprite with a coloured outline on top of the lit scene, for tells that must pop.
+  // fill replaces the body with a flat colour (a silhouette).
+  outlined(ctx, src, sx, sy, color, o = {}) {
+    const dx = Math.round(sx) - this.OX, dy = Math.round(sy) - this.OY;
+    const rim = this.tint(src, color);
+    if (o.glow) {
+      ctx.globalAlpha = o.glow;
+      for (const [ox, oy] of [[-2, 0], [2, 0], [0, -2], [0, 2], [-1, -1], [1, 1], [-1, 1], [1, -1]]) ctx.drawImage(rim, dx + ox, dy + oy);
+      ctx.globalAlpha = 1;
+    }
+    for (const [ox, oy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) ctx.drawImage(rim, dx + ox, dy + oy);
+    ctx.drawImage(o.fill ? this.tint(src, o.fill) : src, dx, dy);
+  },
   // Copy of the current scratch with outline baked in (for gibs).
   snapshot() {
     const c = makeCanvas(this.SIZE, this.SIZE), g = c.ctx;

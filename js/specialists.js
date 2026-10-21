@@ -2,7 +2,7 @@
 // Specialist enemies, each built around one of the player's moves:
 //   shielder  - a riot shield blocks frontal hits; parry its bash or get behind it
 //   crawler   - armour shrugs off slashes; plunges, ground cuts and explosions crack it
-//   grenadier - lobs a small pulse grenade; tether it and slash it back
+//   grenadier - lobs a small pulse grenade; tether it and kick it back
 //   sniper    - perches on rooftops and relocates by tether; tether up to it
 
 Object.assign(ENEMY_DEFS, {
@@ -13,13 +13,6 @@ Object.assign(ENEMY_DEFS, {
 });
 Object.assign(ENEMY_BASE_STATE, { shielder: 'chase', crawler: 'crawl', grenadier: 'move', sniper: 'perch' });
 
-// Shown the first time each type appears in a run.
-const ENEMY_HINTS = {
-  shielder: ['SHIELD SCRAPPER', 'PARRY ITS BASH, OR DASH-SLASH THROUGH TO ITS BACK'],
-  crawler: ['ARMOURED CRAWLER', 'SLASHES BOUNCE OFF. PLUNGE ONTO IT OR GROUND-CUT IT'],
-  grenadier: ['GRENADIER', 'TETHER ITS GRENADE IN FLIGHT, THEN SLASH IT BACK'],
-  sniper: ['ROOFTOP SNIPER', 'HOLD THE TETHER ON IT TO ZIP UP TO ITS PERCH'],
-};
 // Hits that ignore the shielder's shield and crack the crawler's armour.
 const ARMOR_BREAKERS = new Set(['plunge', 'groundcut', 'rock', 'barrel', 'saw']);
 const SHIELD_BYPASS = new Set(['plunge', 'chain', 'barrel', 'saw']);
@@ -63,6 +56,13 @@ Enemy.prototype.shielded = function (o = {}) {
 };
 Enemy.prototype.shieldHit = function (o = {}) {
   const p = Game.player;
+  // a heavy knocks the riot shield aside instead of bouncing off it
+  if (this.type === 'shielder' && o.guardBreak && this.guardBrokenT <= 0) {
+    this.stagger(1.3, sign(o.kx || this.x - p.x) * 140);
+    Sound.play('shieldDeflect');
+    Game.shake(0.2);
+    return;
+  }
   const sx = this.type === 'shielder' ? this.x + this.facing * 9 : this.x, sy = this.type === 'shielder' ? this.y - 11 : this.y - 7;
   FX.sparks(sx, sy, 7, this.facing > 0 ? 0 : Math.PI, 1.6, 60, 200, { c0: '#ffffff', c1: '#ffe080', c2: '#6a5a3a' });
   Sound.play('shieldDeflect');
