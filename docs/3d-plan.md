@@ -372,6 +372,17 @@ If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, c
 - The Retro preset.
 - A slow orbit behind the title screen.
 
+**Status: built.** Endless in the crossroads is its feel test. Notes from the build:
+
+- The crossroads: four 18 m streets meet at a 20 m plaza raised 15 cm; four buildings fill each corner block, split by 6 m alleys, with roofs from 6 to 18 m and clutter on top. An overpass at 7 m crosses the east street, girders cross the other three and one alley, and fire escapes (tiers 5.4 m apart from 5.5 m, leaving 5 m of headroom) climb every building taller than an enemy's 6.4 m jump. Container barricades close the street ends against a ring of 26 m facades with invisible collision above. Six wrecked cars and the containers are the only ground cover. `feel-check.js` checks the clearance rules from each arena's data and finds all 78 raised surfaces climbable by enemies.
+- Every mode plays there; the converted street stays as a free roam and as the fixture for the movement checks. Loading an arena takes about 300 ms.
+- The bake culls per cell instead of per face (the plaza would otherwise hide the whole street surface) and bakes three channels: steady lamps, fires and buzz (neon and failing lamps). The shader scales the last two each frame, so flicker shows on the world and on characters without a rebake.
+- Blackout rebakes the steady channel without the street lamps (about 40 ms), darkens the lamp heads, closes the fog and gives the player a faint light, as the 2D game did; clearing the wave restores it.
+- Rain streaks and ash fall in a box around the camera; a drop stops at the first surface below where it started, so none fall under the overpass.
+- Retro is a toggle that renders at 480 x 270, scaled up without smoothing.
+- The plaza deck is a thin slab on the street box, which exposed a landing bug: a fast fall could reach both in one physics step and settle on the street, inside the deck. Landing now takes the highest top it passed, and `feel-check.js` drops bodies onto every thin slab to keep it that way.
+- No glow pass: glowing parts are fullbright and effects additive, which covers the 2D glow; a bloom pass would mean vendoring post-processing.
+
 ### Phase 5: rival (~2,500)
 
 - AEGIS-07 on the shared controller and rig, its model and parts.
@@ -394,7 +405,7 @@ Each phase ports the effects and sounds of what it builds, so a mechanic arrives
 
 - Phase 2 (done): every player move's effects, ground marks, afterimages, bullet time.
 - Phase 3 (done): the brute, crawler, drone, shielder and sniper's tells and death effects, elite outlines, spawn beams.
-- Phase 4: the world's atmosphere: weather, neon and fire flicker in the full light bake, fog, the Blackout rebake, the Retro preset, and a glow pass if the 2D glow setting is missed.
+- Phase 4 (done): the world's atmosphere: weather, neon and fire flicker in the full light bake, fog, the Blackout rebake and the Retro preset. The glow pass wasn't needed.
 - Phase 5: the rival's effects: the red flash, blade waves, eruptions, ground rings, the pulse grenade's full blast, and the cutscenes.
 - Phase 6: the Sawblade.
 
