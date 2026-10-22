@@ -402,6 +402,16 @@ If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, c
 - Entry, enrage and knockout cutscenes.
 - Melee Duel.
 
+**Status: built (first pass), with changes asked for at the start of the phase.** The Rival Fight and Melee Duel are its feel test; it's the part expected to take the most tuning. Notes from the build:
+
+- AEGIS-07 follows its reference sheets rather than the player's rig: a 2.5 m mech in white and grey pixel camo with blue patches, a T-shaped visor, a square chest core, big pauldrons, a beam cannon on the left shoulder, a thruster pack with two round jets, and a forearm housing on the right arm that is both gun barrel and blade emitter. It has its own model, camo texture and poses (`slashyslash2/js/aegis.js`), and it moves by running, thruster dashes, hovering and leaps instead of the player's controller. The visor beam became the shoulder cannon's beam.
+- Asked for with the rival: it is always zoning or charging. Zoning holds a band of range and strafes round you, boosting back out if you crowd it; charging closes in. It picks by phase and by what you do (keep away and it charges; crowd it or hurt it badly and it zones), with a tell in its eye and jets when it switches, and the stance shows on its health bar.
+- Also asked for: dashes come as chains of legs taken relative to the player when each starts, so they don't all come straight in. Charging, it zigzags (side, other side, cut), swings round the flank, feints back out, or rushes; zoning, it crosses your front throwing a blade wave from each new angle, or backs off and throws one at head height. The cut glints first and passes through where you stood.
+- The redesign table's rules are in: the red flash tracks you until its eye flashes, then hits everything but a 90 degree wedge behind it out to 20 m, and its body blocks walking through; blade waves are 9 m wide; eruptions never open within 5.5 m of you, four can stand, and they reach the sky; the cleave and the dive landing throw rings.
+- Phase 1's beam sweeps with limits on how fast its yaw and pitch turn, cuts down street lamps in its path, and is fired hovering. The gun shows an aim line through its wind-up. The pulse grenade shows its arc and blast zone while it charges in the left hand.
+- Cutscenes take the camera to set shots per stage (the entry cranes up the beacon, closes in as it stands and frames it for the title; the enrage pushes in for the roar; the knockout orbits) with letterbox bars and hold-to-skip, and hand the camera back facing it. The health bar sits at the bottom of the screen.
+- Asked for alongside: the scroll wheel zooms the camera down to first person, wall clings last only while a movement key is held, and sword trails carry forked lightning.
+
 ### Phase 6: the rest (~600)
 
 - Sawblade; Training (dummy and spawn panel).
