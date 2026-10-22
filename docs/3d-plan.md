@@ -356,6 +356,14 @@ If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, c
 - Endless upgrades work as in 2D, with Ember Wake ported (it was missing). Spawn beams mark arriving enemies.
 - The Phase 2 Street Waves mode is gone; Endless covers it.
 
+**Movement retune (after Phase 3).** Playing it, the converted 2D movement felt stiff in third person, closer to Roblox than to Warframe. Retuned in metres, as the plan intended:
+
+- Ground speed builds from a 9.5 m/s run to a 13.8 m/s sprint over half a second. Turns carve the velocity round at a rate that falls with speed instead of snapping to the new direction, a hard reversal skids, and stops take 0.2 s.
+- The step-up dropped from 1 m to 0.45 m. Anything up to 1.95 m is vaulted at speed (cars, low walls, chest-high ledges), going over the highest top within reach and keeping about 95% of your speed. Mantles leave you moving.
+- Gravity went from 87 to 70 m/s², easing near the top of a held jump. Jump speeds were rescaled so every height (and every climb `feel-check.js` checks) is unchanged. Air control carves too. The slide starts at 1.2x your speed and lasts longer. Combat launches were left as they were.
+- The sprint pose pitches the torso up to about 45 degrees with the blade trailing and the free arm pumping. The body banks into turns from its sideways acceleration, and leans with acceleration. There are skid, vault and landing-roll poses, and movement poses crossfade over 0.12 s.
+- The camera widens up to 5 degrees at a sprint (behind the existing comfort toggle) and trails about half a metre behind at speed.
+
 ### Phase 4: arena and look (~1,200)
 
 - The crossroads arena, following the clearance rules.
