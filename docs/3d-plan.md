@@ -383,6 +383,16 @@ If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, c
 - The plaza deck is a thin slab on the street box, which exposed a landing bug: a fast fall could reach both in one physics step and settle on the street, inside the deck. Landing now takes the highest top it passed, and `feel-check.js` drops bodies onto every thin slab to keep it that way.
 - No glow pass: glowing parts are fullbright and effects additive, which covers the 2D glow; a bloom pass would mean vendoring post-processing.
 
+**Additions after Phase 4 (asked for in play).**
+
+- Skid turns: a hard reversal at speed (W to S, W+D to A+S) drops the body low onto the free hand dug into the street, with sparks off the hand and glowing scrape marks from the hand and the trailing boot that cool and fade; when the slide is spent, a push off the hand at 80% of a run.
+- Side vaults: the vault hops 0.45 m clear of the top with the free hand planted on it, the body rolled onto its side and the knees swung over.
+- Wall cling: wall kicks now start from a cling. Jumping into a tall wall (at or past the top of the jump) digs the left hand in, holds for 1 s, then slides, building from 0 to 6.4 m/s at 5 m/s², the hand scoring a groove down the wall. A jump beside a wall without a cling is a double jump.
+- Aimed swings: slashes tip up or down with the aim (or straight at an assisted target above or below), with a small dead zone; the hit test, the trail and the knockback follow the pitch, and the body tilts with the same animations (whole body in the air, bending at the waist on the ground).
+- Plunge on a held attack in the air instead of crouch plus attack (0.2 s), so the air heavy is gone.
+- Prop collision: lamps, fire barrels, bins, hydrants, cones, poles and red barrels are round colliders bodies slide round; running into a red barrel shoves it. Lamps can be cut by any slash or knocked down by a blast: the light goes out (a local rebake), the pole stops colliding, and the top topples, smashes and hits whatever it falls on. Lamps stand again on a new run.
+- The south-east corner block became a construction site: hoarding with gates, a three-storey steel frame (floors at 5.4, 10.8 and 16.2 m, 5.1 m clear under each), scaffolding continuing the overpass, an excavator, a dirt pile, materials, offices and floodlights, and a tower crane whose jib (25 m) crosses the east street. The jib and the load on its hook are tether points reachable from 42 m: a tap flings you onto the jib, a hold hauls you round the beam onto it.
+
 ### Phase 5: rival (~2,500)
 
 - AEGIS-07 on the shared controller and rig, its model and parts.
