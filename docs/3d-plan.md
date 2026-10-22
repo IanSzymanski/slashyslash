@@ -342,6 +342,20 @@ If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, c
 - Director modes: demo, endless, upgrades, wave modifiers.
 - Pickups and damage numbers (projected into the HUD canvas).
 
+**Status: built.** The Wave Demo and Endless Survival are its feel test. Notes from the build:
+
+- Navigation is one graph over every walkable surface rather than a grid per layer: a node every 0.5 m wherever a body fits, walk links within a 1 m step, jump links up to 6.4 m from surface edges (stepping out from under an overhang first, so stacked fire-escape platforms climb tier by tier) and drop links off ledges. The flow field is a Dijkstra search back from the player, re-solved at most ten times a second within about 60 m of travel; lower nodes near the player are seeded at a cost, so enemies that can't climb to you wait below. About 100 ms to build at load, 2 ms per re-solve. `feel-check.js` checks the street is one piece, every surface has a way down and every fire-escape tier can be climbed (21 of 31 raised surfaces are climbable).
+- Enemy jumps reach 6.4 m, more than the 2D jump, which tops out just under the first tier. In 3D a low roof isn't a refuge from melee; brutes are the exception and stay on the ground.
+- Humanoids share one rig: the shield scrapper's shield rides the chest with the left arm on it by IK, the sniper has a hood and a long rifle, the brute is the rig at 1.45x with its shoulders set wide, a furnace in its chest and its head sunk. The crawler (six legs, tripod gait, seams that glow when cracked) and the drone (rotors, a lens that blinks red) have their own rigs. Each is still one draw call.
+- With no text in play, states show on the models: a broken guard leaves the shield hanging low, cracked armour glows through its seams, the brute's furnace flares through its wind-ups.
+- The brute's ground wave is a band of light running out from the slam; it hits once if your feet are within 0.64 m of the ground as it passes, walls stop it, and it can be parried.
+- The drone's glint is timed to its impact rather than its launch; the 2D timing put the hit outside a parry made on the glint.
+- Sniper perches are the middles of each side of a qualifying ledge, since a sniper in the middle of a balcony can't see past its own floor. A sniper rises off its ledge, zips along a straight line its whole body clears, and drops onto the new perch.
+- The boundary walls continue upward as invisible collision: random play found a zip from the 20.5 m roof onto the back wall's top, outside the arena.
+- Rival waves are held back until Phase 5 (the demo ends after six waves, endless has no eighth-wave rival) and the Blackout modifier until Phase 4. Glints Only hides the threat ring's position markers, the 3D stand-in for the 2D `!` markers.
+- Endless upgrades work as in 2D, with Ember Wake ported (it was missing). Spawn beams mark arriving enemies.
+- The Phase 2 Street Waves mode is gone; Endless covers it.
+
 ### Phase 4: arena and look (~1,200)
 
 - The crossroads arena, following the clearance rules.
@@ -371,7 +385,7 @@ If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, c
 Each phase ports the effects and sounds of what it builds, so a mechanic arrives with its 2D feedback rather than as a placeholder. The procedural sounds and music are already all in (`audio.js` is a copy of the 2D one, placed in 3D with HRTF panning); what's left is effects for things not built yet:
 
 - Phase 2 (done): every player move's effects, ground marks, afterimages, bullet time.
-- Phase 3: the brute, crawler, drone, shielder and sniper's tells and death effects, elite outlines.
+- Phase 3 (done): the brute, crawler, drone, shielder and sniper's tells and death effects, elite outlines, spawn beams.
 - Phase 4: the world's atmosphere: weather, neon and fire flicker in the full light bake, fog, the Blackout rebake, the Retro preset, and a glow pass if the 2D glow setting is missed.
 - Phase 5: the rival's effects: the red flash, blade waves, eruptions, ground rings, the pulse grenade's full blast, and the cutscenes.
 - Phase 6: the Sawblade.
