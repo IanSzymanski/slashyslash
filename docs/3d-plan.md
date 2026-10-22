@@ -411,6 +411,7 @@ If 1 or 3 fail, strengthen the aim assist or add a lock-on toggle. If 4 fails, c
 - Phase 1's beam sweeps with limits on how fast its yaw and pitch turn, cuts down street lamps in its path, and is fired hovering. The gun shows an aim line through its wind-up. The pulse grenade shows its arc and blast zone while it charges in the left hand.
 - Cutscenes take the camera to set shots per stage (the entry cranes up the beacon, closes in as it stands and frames it for the title; the enrage pushes in for the roar; the knockout orbits) with letterbox bars and hold-to-skip, and hand the camera back facing it. The health bar sits at the bottom of the screen.
 - Asked for alongside: the scroll wheel zooms the camera down to first person, wall clings last only while a movement key is held, and sword trails carry forked lightning.
+- Asked for after the first pass: in first person, whatever of the body is right at the lens dithers away (instead of clipping through the view in jumps and crouches), and the screen reacts to swings, dashes and hits with FOV punches, roll, edge flares, a hit vignette darkest on the side the hit came from, a low-health pulse and speed lines. Ledges climb from the ground up to 2.65 m and from the air up to 2.4 m above the feet (the mantle above reached 1.45 m, from the air only), and a tether at a ledge's edge puts you on top. Slash trails last half as long again and fade, feather and taper instead of popping on and off.
 
 ### Phase 6: the rest (~600)
 
