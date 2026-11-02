@@ -50,6 +50,7 @@ const UI = {
       case 'endless': Game.newRun('endless'); break;
       case 'boss': Game.newRun('boss'); break;
       case 'duel': Game.newRun('duel'); break;
+      case 'krag': Game.newRun('krag'); break;
       case 'training': Game.newRun('training'); break;
       case 'pick': Game.chooseUpgrade(el.dataset.id); break;
       case 'resume': Game.resume(); break;
@@ -72,7 +73,7 @@ const UI = {
   },
   refreshBest() {
     const el = document.getElementById('best');
-    if (el) el.textContent = `Best endless: wave ${SaveData.bestWave} · ${SaveData.bestScore.toLocaleString()} pts${SaveData.demoCleared ? ' · Demo cleared' : ''}${SaveData.unlocks.aegis ? ' · AEGIS-07 unlocked' : ''}`;
+    if (el) el.textContent = `Best endless: wave ${SaveData.bestWave} · ${SaveData.bestScore.toLocaleString()} pts${SaveData.demoCleared ? ' · Demo cleared' : ''}${SaveData.unlocks.aegis ? ' · AEGIS-07 unlocked' : ''}${SaveData.unlocks.krag ? ' · KRAG beaten' : ''}`;
   },
   applyVisualToggles() {
     document.getElementById('scanlines').hidden = !S.visuals.scanlines;
@@ -91,10 +92,12 @@ const UI = {
   // ---------- results ----------
   showOver(victory) {
     const st = Game.stats;
-    const boss = Game.mode === 'boss', duel = Game.mode === 'duel';
-    document.getElementById('over-title').textContent = victory ? (duel ? 'Duel won' : boss ? 'Rival defeated' : 'Demo complete') : 'Signal lost';
+    const boss = Game.mode === 'boss', duel = Game.mode === 'duel', krag = Game.mode === 'krag';
+    document.getElementById('over-title').textContent = victory ? (duel ? 'Duel won' : boss ? 'Rival defeated' : krag ? 'KRAG defeated' : 'Demo complete') : 'Signal lost';
     let sub;
-    if (victory && duel) sub = 'You beat AEGIS-07 blade to blade. Practice only: win the full Rival Fight to unlock it.';
+    if (victory && krag) sub = 'KRAG is down, and the Foundry stops shaking.';
+    else if (krag) sub = 'KRAG still stands. Dodge its strings, parry the gold blow, crack its arm, and hit the arm when it guards at full heat.';
+    else if (victory && duel) sub = 'You beat AEGIS-07 blade to blade. Practice only: win the full Rival Fight to unlock it.';
     else if (victory) sub = boss ? 'AEGIS-07 is down and unlocked for a future character roster.' : 'All demo waves cleared, rival included. AEGIS-07 is unlocked for a future character roster.';
     else if (duel) sub = 'AEGIS-07 won the duel. Parry a swing, let it parry your counter, then parry its gold riposte.';
     else if (boss) sub = 'AEGIS-07 holds the street. Tether its pulse grenade and kick it back to break the shield.';
@@ -136,6 +139,11 @@ const UI = {
       ['Pause (training: spawn panel)', actionLabel('pause')],
       ['Skip a cutscene you have seen', `Hold ${actionLabel('sheathe')}`],
       ['Pick an endless upgrade', 'Click, or 1 / 2 / 3'],
+      ['KRAG strings drive through a parry: dodge them; parry the blow that winds up in gold to stagger it', `${actionLabel('dash')} · ${actionLabel('sheathe')}`],
+      ['KRAG guarding (blue flash, then the arm up): blows on the arm crack it until it breaks; at full heat (seams white, mohawk torn up) hit the arm to blow it up in its face', actionLabel('attack')],
+      ['KRAG Molten Fist (red): no parry or dash saves you in the red zone; get behind it (dash through it or jump over it) or high above it', actionLabel('dash')],
+      ['Foundry: knock enemies into the molten river; hit a ladle or yank it with the tether to pour it', `${actionLabel('attack')} · ${actionLabel('tether')}`],
+      ['Endless: step into the portal after a boss to travel between the city and the Foundry', 'Walk in'],
     ];
     document.getElementById('howto-table').innerHTML = rows.map(([a, k]) => `<tr><td>${a}</td><td><kbd>${k}</kbd></td></tr>`).join('');
   },

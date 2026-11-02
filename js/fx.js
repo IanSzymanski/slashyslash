@@ -24,6 +24,7 @@ const FX = {
     for (const g of this.ghosts) this.ghostPool.push(g.c);
     this.ghosts.length = 0;
     this.flashA = 0;
+    if (typeof KragFX !== 'undefined') KragFX.clear();
   },
   n(count) {
     const v = count * S.visuals.particles;
@@ -112,7 +113,7 @@ const FX = {
     this.texts.push(Object.assign({ str: String(str), x, y, vy: -40, t: 0, dur: 0.7, c: '#ffffff', scale: 1 }, o));
   },
   decal(kind, x, y, o = {}) {
-    if (this.decals.length > 60) this.decals.shift();
+    if (this.decals.length > 90) this.decals.shift();
     const d = Object.assign({ kind, x, y, t: 0, dur: 6 }, o);
     if (kind === 'crack') {
       d.pts = [];
@@ -131,6 +132,7 @@ const FX = {
       }
     }
     this.decals.push(d);
+    return d;
   },
   ghost(src, x, y, color = '#ff2a48', dur = 0.25, alpha = 0.6) {
     const c = this.ghostPool.pop() || makeCanvas(src.width, src.height);

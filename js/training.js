@@ -1,6 +1,6 @@
 'use strict';
 // Training mode: an anchored dummy with a damage readout (it can swing at you for parry practice),
-// and a panel (opened with pause) to spawn any enemy or the rival, toggle upgrades and modifiers.
+// and a panel (opened with pause) to spawn any enemy, the rival or KRAG, toggle upgrades and modifiers.
 
 ENEMY_DEFS.dummy = { hp: 3000, w: 12, h: 22, speed: 0, score: 0, mass: 99, dmg: 10, heavy: true, debris: ['#7a5a3a', '#5a3e28', '#c8a070', '#ff3048'] };
 ENEMY_BASE_STATE.dummy = 'idle';
@@ -91,6 +91,14 @@ const Training = {
     Game.enemies.push(r);
     Sound.play('spawn');
   },
+  // KRAG, a little further off; hot: already at full heat
+  spawnKrag(hot) {
+    const p = Game.player;
+    const k = new Krag(Level.freeGroundX(clamp(p.x + (p.facing || 1) * 210, 120, Level.W - 120), 22), Level.GROUND, { hp: 1, dmg: 1 });
+    if (hot) k.heat = HEAT.MAX - 0.5;
+    Game.enemies.push(k);
+    Sound.play('spawn');
+  },
   clear() {
     for (const e of Game.enemies) { if (e.type === 'dummy') continue; if (e.stopLoops) e.stopLoops(); e.dead = true; }
     Game.projectiles = []; Game.hazards = [];
@@ -114,6 +122,7 @@ const Training = {
     let h = '<h3>Spawn</h3><div class="grid2">';
     for (const [t, name] of TRAIN_TYPES) h += btn('train-spawn', name, '', `data-type="${t}"`);
     h += btn('train-rival', 'AEGIS-07', 'phase 1', 'data-p2="0"') + btn('train-rival', 'AEGIS-07', 'blade phase', 'data-p2="1"');
+    h += btn('train-krag', 'KRAG', 'cold', 'data-hot="0"') + btn('train-krag', 'KRAG', 'nearly full heat', 'data-hot="1"');
     h += '</div><h3>Practice</h3><div class="grid2">';
     h += btn('train-dummy', DUMMY_MODES[Game.training.dummy]);
     h += btn('train-mod', 'Modifier', Director.modifier ? WAVE_MODIFIERS[Director.modifier].name.toLowerCase() : 'none');
@@ -128,6 +137,7 @@ const Training = {
     switch (a) {
       case 'train-spawn': this.spawn(el.dataset.type); Game.resume(); return;
       case 'train-rival': this.spawnRival(el.dataset.p2 === '1'); Game.resume(); return;
+      case 'train-krag': this.spawnKrag(el.dataset.hot === '1'); Game.resume(); return;
       case 'train-clear': this.clear(); Game.resume(); return;
       case 'train-refill': this.refill(); break;
       case 'train-ult': Game.player.ultCharge = 1; break;

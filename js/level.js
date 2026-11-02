@@ -1,17 +1,46 @@
 'use strict';
-// The abandoned city arena: collision geometry, body physics, and prerendered parallax layers.
+// The arenas: collision geometry, body physics, and prerendered parallax layers. Each region (the city, the
+// Foundry in foundry.js) is built once into its own set of fields; Level.load swaps which one is live.
+
+// the fields a region owns
+const REGION_KEYS = ['W', 'H', 'GROUND', 'CAM_Y_MIN', 'solids', 'platforms', 'buildings', 'all', 'perches', 'spawnGround', 'spawnHigh',
+  'barrelSpots', 'lamps', 'neons', 'fires', 'beacons', 'layers', 'lava', 'conveyors', 'ladleSpots', 'portalAt', 'start', 'F'];
 
 const Level = {
-  W: 2400, H: 440, GROUND: 400, CAM_Y_MIN: -60,
+  id: 'city', W: 2400, H: 440, GROUND: 400, CAM_Y_MIN: -60,
   solids: [], platforms: [], buildings: [],
   spawnGround: [], spawnHigh: [], barrelSpots: [],
   lamps: [], neons: [], fires: [], beacons: [],
+  // the Foundry's molten river gaps ({ x0, x1, y: its surface }), conveyors and ladle spots
+  lava: [], conveyors: [], ladleSpots: [],
+  // where a portal between the regions stands, and where you start
+  portalAt: 1250, start: 1200, F: null,
   layers: {},
-  built: false,
+  regions: {},
 
-  build() {
-    if (this.built) return;
-    this.built = true;
+  build() { this.load('city'); },
+  // Makes a region live, building it the first time.
+  load(id) {
+    let R = this.regions[id];
+    if (!R) {
+      this.W = 2400; this.H = 440; this.GROUND = 400; this.CAM_Y_MIN = -60;
+      this.solids = []; this.platforms = []; this.buildings = []; this.spawnGround = []; this.spawnHigh = []; this.barrelSpots = [];
+      this.lamps = []; this.neons = []; this.fires = []; this.beacons = []; this.layers = {};
+      this.lava = []; this.conveyors = []; this.ladleSpots = []; this.portalAt = 1250; this.start = 1200; this.F = null;
+      if (id === 'foundry') Foundry.build(this); else this.buildCity();
+      R = this.regions[id] = {};
+      for (const k of REGION_KEYS) R[k] = this[k];
+    }
+    for (const k of REGION_KEYS) this[k] = R[k];
+    this.id = id;
+  },
+  foundry() { return this.id === 'foundry'; },
+  // the molten river under x, or null
+  lavaAt(x) {
+    for (const L of this.lava) if (x > L.x0 && x < L.x1) return L;
+    return null;
+  },
+  buildCity() {
     const G = this.GROUND;
     const S_ = (x, y, w, h, kind, style) => this.solids.push({ x, y, w, h, kind, style });
     const P_ = (x, y, w, kind) => this.platforms.push({ x, y, w, h: 4, kind, oneWay: true });
@@ -169,7 +198,7 @@ const Level = {
   freeGroundX(x, w = 10) {
     for (let d = 0; d < 300; d += 6) {
       for (const c of d ? [x - d, x + d] : [x]) {
-        if (c < 60 || c > this.W - 60) continue;
+        if (c < 60 || c > this.W - 60 || this.lavaAt(c - w / 2) || this.lavaAt(c + w / 2)) continue;
         if (this.rectFree(c - w / 2, this.GROUND - 24, w, 23.9)) return c;
       }
     }
@@ -628,6 +657,7 @@ const Level = {
   },
   // ---------- per-frame drawing ----------
   drawBackground(ctx, cx, cy, t) {
+    if (this.foundry()) { Foundry.drawBackground(ctx, cx, cy, t); return; }
     ctx.drawImage(this.layers.sky, 0, 0);
     // sweeping searchlights
     ctx.save();
@@ -662,6 +692,7 @@ const Level = {
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
   },
   drawPlay(ctx, cx, cy, t) {
+    if (this.foundry()) { Foundry.drawPlay(ctx, cx, cy, t); return; }
     const sx = Math.round(cx), sy = Math.round(cy);
     ctx.drawImage(this.layers.play, sx, sy, VIEW_W, VIEW_H, 0, 0, VIEW_W, VIEW_H);
     // neon signs (flickering)
@@ -690,7 +721,10 @@ const Level = {
       if (Math.random() < 0.3) FX.embers(f.x, f.y - 16, 1);
     }
   },
+  // molten metal and anything else that glows through the lighting (the Foundry's)
+  drawEmissive(ctx, cx, cy, t) { if (this.foundry()) Foundry.drawEmissive(ctx, cx, cy, t); },
   addLights(cx, cy, t) {
+    if (this.foundry()) { Foundry.addLights(cx, cy, t); return; }
     for (const l of this.lamps) {
       if (Game.mod('blackout')) continue;
       const on = !l.flick || Math.sin(t * 13 + l.x) > -0.6 || Math.random() < 0.5;

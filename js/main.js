@@ -3,7 +3,7 @@
 
 // Style: hits build a meter that ranks you C to SSS. Repeating the same move earns less,
 // and the rank multiplies score and ultimate charge.
-const STYLE_GAIN = { dash: 6, slash: 4, heavy: 7, groundcut: 8, rock: 2, plunge: 10, iaido: 10, chain: 5, tether: 10, reflect: 12, barrel: 10, saw: 1.5, overload: 5 };
+const STYLE_GAIN = { dash: 6, slash: 4, heavy: 7, groundcut: 8, rock: 2, plunge: 10, iaido: 10, chain: 5, tether: 10, reflect: 12, barrel: 10, saw: 1.5, overload: 5, lava: 14, detonate: 24, armbreak: 16 };
 const STYLE_RANKS = [
   { th: 380, r: 'SSS', c: '#ffffff', mul: 2.5 }, { th: 260, r: 'SS', c: '#ffd070', mul: 2 }, { th: 170, r: 'S', c: '#ffb040', mul: 1.75 },
   { th: 100, r: 'A', c: '#ff5a6a', mul: 1.5 }, { th: 50, r: 'B', c: '#d0a0ff', mul: 1.25 }, { th: 20, r: 'C', c: '#9ab0d0', mul: 1.1 },
@@ -29,6 +29,7 @@ const Game = {
     Sound.stopAll();
     FX.clear();
     this.enemies = []; this.projectiles = []; this.hazards = []; this.pickups = []; this.cuts = []; this.props = [];
+    Level.load('city');
     this.player = new Player(470, 205);
     this.player.facing = 1;
     this.slowScale = 1; this.slowT = 0; this.freezeT = 0; this.btT = 0; this.btKind = null; this.btOwner = null;
@@ -50,16 +51,16 @@ const Game = {
     this.state = 'playing';
     FX.clear();
     this.enemies = []; this.projectiles = []; this.hazards = []; this.pickups = []; this.cuts = []; this.props = [];
-    this.player = new Player(1200, Level.GROUND);
+    // the KRAG Fight is in the Foundry; everything else starts in the city
+    Level.load(mode === 'krag' ? 'foundry' : 'city');
+    this.player = new Player(Level.start, Level.GROUND);
     this.time = 0; this.acc = 0; this.slowScale = 1; this.slowT = 0; this.freezeT = 0; this.overT = 0; this.btT = 0; this.btKind = null; this.btOwner = null;
     this.cine = null; Input.locked = false;
     this.stats = { kills: 0, score: 0, maxCombo: 0, parries: 0, wave: 0, time: 0, damageTaken: 0, ults: 0 };
     this.combo = 0; this.comboT = 0; this.announcements = [];
     this.style = 0; this.styleRecent = []; this.styleIdle = 0; this.upgrades = new Set();
     Render.hpTrail = PC.MAX_HP; Render.shTrail = PC.MAX_SHIELD;
-    this.cam.x = clamp(this.player.x - VIEW_W / 2, 0, Level.W - VIEW_W);
-    this.cam.y = clamp(this.player.y - VIEW_H * 0.62, Level.CAM_Y_MIN, Level.H - VIEW_H);
-    this.cam.trauma = 0;
+    this.snapCamera();
     this.resetProps(true);
     Director.start(mode);
     if (mode === 'training') { Training.start(); Training.reset(); }
@@ -67,6 +68,11 @@ const Game = {
     Sound.setIntensity(0.4);
     Input.clear(); Input.consume();
     UI.hideAll();
+  },
+  snapCamera() {
+    this.cam.x = clamp(this.player.x - VIEW_W / 2, 0, Level.W - VIEW_W);
+    this.cam.y = clamp(this.player.y - VIEW_H * 0.62, Level.CAM_Y_MIN, Level.H - VIEW_H);
+    this.cam.trauma = 0;
   },
   pause() {
     if (this.state !== 'playing') return;
@@ -88,9 +94,12 @@ const Game = {
   resetProps(all) {
     if (all) this.props = [];
     this.props = this.props.filter((p) => !p.dead);
+    // the Foundry stands crucibles of slag where the city has red barrels, and fills its ladles
+    const Kind = Level.foundry() ? Crucible : Barrel;
     for (const s of Level.barrelSpots) {
-      if (!this.props.some((p) => dist(p.x, p.y, s.x, s.y) < 30)) this.props.push(new Barrel(s.x, s.y));
+      if (!this.props.some((p) => p instanceof Barrel && dist(p.x, p.y, s.x, s.y) < 30)) this.props.push(new Kind(s.x, s.y));
     }
+    if (Level.foundry()) Foundry.resetProps();
   },
 
   // ---------- feedback hooks ----------
@@ -302,8 +311,10 @@ const Game = {
     for (const h of this.hazards) h.update(dt);
     for (const p of this.props) p.update(dt);
     for (const pk of this.pickups) pk.update(dt);
+    Foundry.update(dt);
     if (!this.player.dead && !cine) Director.update(dt);
     FX.update(dt);
+    KragFX.update(dt);
     if (this.comboT > 0) { this.comboT -= dt; if (this.comboT <= 0) this.combo = 0; }
     this.styleIdle += dt;
     if (this.styleIdle > 1.2 && this.style > 0) this.style = Math.max(0, this.style - (4 + this.style * 0.06) * dt);

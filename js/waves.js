@@ -1,5 +1,9 @@
 'use strict';
-// Wave director for the scripted demo, endless survival, the rival fight and the melee duel test mode.
+// Wave director for the scripted demo, endless survival, the rival fight, the melee duel test mode and the KRAG
+// fight. Endless travels between two regions: it starts in the city, where the eighth wave is AEGIS-07; when it
+// falls a portal opens, and stepping into it takes the run to the Foundry (foundry.js), where after three waves
+// KRAG comes; when KRAG falls a portal opens back to the city, where after three waves AEGIS-07 comes again, and
+// so on round. The KRAG Fight is KRAG alone, in the Foundry.
 
 // Each wave introduces one problem that a specific move solves, so the rival tests practised skills.
 const DEMO_WAVES = [
@@ -13,6 +17,9 @@ const DEMO_WAVES = [
 ];
 const ALL_TYPES = ['scrapper', 'gunner', 'drone', 'brute', 'shielder', 'crawler', 'grenadier', 'sniper'];
 const BOSS_EVERY = 8;
+// waves in a region before its boss, after the first stint in the city (BOSS_EVERY - 1 of them)
+const REGION_ROUNDS = 3;
+const REGION_BOSS = { city: 'aegis', foundry: 'krag' };
 const ENDLESS_TYPES = [
   { type: 'scrapper', cost: 1, minWave: 1, weight: 4 },
   { type: 'gunner', cost: 1.4, minWave: 2, weight: 2.4 },
@@ -26,13 +33,18 @@ const ENDLESS_TYPES = [
 const ENDLESS_NAMES = ['STREET SWEEP', 'RUST TIDE', 'NIGHT SHIFT', 'SCRAPYARD', 'BLACKOUT', 'NEON RIOT', 'DEAD GRID', 'RED HOUR'];
 
 const Director = {
-  mode: 'demo', wave: 0, state: 'idle', queue: [], spawnT: 0, breakT: 0, waveName: '', total: 0, scale: { hp: 1, dmg: 1 }, bossWave: false, modifier: null,
+  mode: 'demo', wave: 0, state: 'idle', queue: [], spawnT: 0, breakT: 0, waveName: '', total: 0, scale: { hp: 1, dmg: 1 }, bossWave: false, bossType: 'aegis', modifier: null,
+  // endless's region, how many stints it has been through, the waves so far in this one, an open portal
+  region: 'city', stint: 0, regionWave: 0, portal: null,
 
   start(mode) {
     this.mode = mode; this.wave = 0; this.state = mode === 'training' ? 'training' : 'intro'; this.breakT = 1.4; this.queue = []; this.modifier = null;
+    this.region = mode === 'krag' ? 'foundry' : 'city'; this.stint = 0; this.regionWave = 0; this.portal = null;
   },
+  // the wave of this stint that brings its region's boss (and after which the portal opens)
+  stintLen() { return this.stint === 0 ? BOSS_EVERY : REGION_ROUNDS + 1; },
   enabledTypes() { return ALL_TYPES.filter((t) => S.enemies[t]); },
-  soloRival() { return this.mode === 'boss' || this.mode === 'duel'; },
+  soloRival() { return this.mode === 'boss' || this.mode === 'duel' || this.mode === 'krag'; },
   lastWave() { return this.soloRival() ? 1 : this.mode === 'demo' ? DEMO_WAVES.length : Infinity; },
   buildDemo(n) {
     const def = DEMO_WAVES[n - 1];
@@ -48,10 +60,12 @@ const Director = {
     return out;
   },
   buildEndless(n) {
-    this.bossWave = S.enemies.bossEndless && n % BOSS_EVERY === 0;
+    this.bossWave = S.enemies.bossEndless && this.regionWave === this.stintLen();
     if (this.bossWave) {
+      // each region's own boss: AEGIS-07 in the city, KRAG in the Foundry
+      this.bossType = REGION_BOSS[this.region];
       this.scale = { hp: 1 + (n - 1) * 0.06, dmg: 1 + (n - 1) * 0.03 };
-      this.waveName = 'RIVAL';
+      this.waveName = this.bossType === 'krag' ? 'KRAG' : 'RIVAL';
       return [];
     }
     let budget = (4 + n * 1.7) * S.enemies.count;
@@ -70,12 +84,14 @@ const Director = {
     }
     for (let i = out.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [out[i], out[j]] = [out[j], out[i]]; }
     this.scale = { hp: 1 + (n - 1) * 0.07, dmg: 1 + (n - 1) * 0.035 };
-    this.waveName = n % 5 === 0 ? 'HEAVY WAVE' : ENDLESS_NAMES[(n - 1) % ENDLESS_NAMES.length];
+    const names = this.region === 'foundry' ? FOUNDRY_NAMES : ENDLESS_NAMES;
+    this.waveName = n % 5 === 0 ? 'HEAVY WAVE' : names[(n - 1) % names.length];
     return out.length ? out : ['scrapper'];
   },
   nextWave() {
-    this.wave++;
-    if (this.soloRival()) { this.bossWave = true; this.scale = { hp: 1, dmg: 1 }; this.waveName = this.mode === 'duel' ? 'LIMITERS OFF, FULL HEALTH' : 'RIVAL'; this.queue = []; }
+    this.wave++; this.regionWave++;
+    this.bossType = this.mode === 'krag' ? 'krag' : 'aegis';
+    if (this.soloRival()) { this.bossWave = true; this.scale = { hp: 1, dmg: 1 }; this.waveName = this.mode === 'duel' ? 'LIMITERS OFF, FULL HEALTH' : this.mode === 'krag' ? 'THE MOLTEN FIST' : 'RIVAL'; this.queue = []; }
     else this.queue = this.mode === 'demo' ? this.buildDemo(this.wave) : this.buildEndless(this.wave);
     this.total = this.queue.length;
     this.spawnT = this.bossWave ? 4 : 0.8;
@@ -83,8 +99,8 @@ const Director = {
     this.modifier = this.mode === 'endless' && !this.bossWave && this.wave >= 4 && chance(0.45) ? pick(Object.keys(WAVE_MODIFIERS)) : null;
     this.state = 'fight';
     if (this.bossWave) this.spawnRival();
-    const title = this.mode === 'duel' ? 'MELEE DUEL' : this.mode === 'boss' ? 'RIVAL FIGHT' : 'WAVE ' + this.wave + (this.mode === 'demo' ? ' / ' + DEMO_WAVES.length : '');
-    Game.announce(title, this.waveName, this.mode === 'duel' ? '#ff6a7a' : this.bossWave ? '#4af0ff' : '#ff3a52', 2.2);
+    const title = this.mode === 'duel' ? 'MELEE DUEL' : this.mode === 'boss' ? 'RIVAL FIGHT' : this.mode === 'krag' ? 'KRAG FIGHT' : 'WAVE ' + this.wave + (this.mode === 'demo' ? ' / ' + DEMO_WAVES.length : '');
+    Game.announce(title, this.waveName, this.mode === 'duel' ? '#ff6a7a' : this.bossWave ? (this.bossType === 'krag' ? '#ff9a5a' : '#4af0ff') : '#ff3a52', 2.2);
     if (this.modifier) Game.announce(WAVE_MODIFIERS[this.modifier].name, WAVE_MODIFIERS[this.modifier].desc, '#ffd070', 2.6, true);
     Sound.play('waveStart');
     Sound.setIntensity(1);
@@ -103,6 +119,15 @@ const Director = {
       if (this.breakT <= 0) {
         if (this.wave >= this.lastWave()) { this.state = 'done'; Game.victory(); return; }
         this.nextWave();
+      }
+    } else if (this.state === 'portal') {
+      // waiting for you to step through
+      if (this.portal && this.portal.entered) {
+        const to = this.portal.to;
+        this.portal = null;
+        Foundry.travel(to);
+        this.region = to; this.stint++; this.regionWave = 0;
+        this.state = 'break'; this.breakT = Math.max(2.4, S.enemies.waveBreak);
       }
     } else if (this.state === 'fight') {
       this.spawnT -= dt;
@@ -123,18 +148,27 @@ const Director = {
     Game.player.heal(15);
     if (this.mode === 'endless' && this.wave > SaveData.bestWave) { SaveData.bestWave = this.wave; saveProgress(); }
     const last = this.wave >= this.lastWave();
-    const done = this.mode === 'duel' ? 'DUEL WON' : this.mode === 'boss' ? 'RIVAL DEFEATED' : 'DEMO CLEAR';
+    const done = this.mode === 'duel' ? 'DUEL WON' : this.mode === 'boss' ? 'RIVAL DEFEATED' : this.mode === 'krag' ? 'KRAG DOWN' : 'DEMO CLEAR';
     this.modifier = null;
     const pickDue = this.mode === 'endless' && upgradeDue(this.wave);
     if (pickDue) Game.queueCut(1.0, () => Game.offerUpgrade());
     Game.announce(last ? done : 'WAVE CLEAR', '+' + bonus + ' PTS', '#7dff8a', 1.8);
     this.state = 'break';
     this.breakT = last ? 2 : Math.max(S.enemies.waveBreak, pickDue ? 2.5 : 0);
+    // a region's last wave (its boss) cleared: a portal opens to the other region
+    if (this.mode === 'endless' && this.regionWave >= this.stintLen()) {
+      const to = this.region === 'foundry' ? 'city' : 'foundry';
+      this.state = 'portal';
+      this.portal = Foundry.openPortal(to);
+      Game.announce('A PORTAL OPENS', to === 'foundry' ? 'STEP THROUGH TO THE FOUNDRY' : 'STEP THROUGH TO THE STREETS', '#ffb040', 3.4);
+    }
   },
   spawnRival() {
     const p = Game.player;
-    const x = Level.freeGroundX(clamp(p.x < Level.W / 2 ? p.x + 300 : p.x - 300, 120, Level.W - 120), 12);
-    const r = new Rival(x, Level.GROUND, this.scale);
+    // KRAG comes up out of the Foundry's open floor
+    const want = Level.foundry() ? (Math.abs(p.x - 1440) > 140 ? 1440 : 1100) : p.x < Level.W / 2 ? p.x + 300 : p.x - 300;
+    const x = Level.freeGroundX(clamp(want, 120, Level.W - 120), this.bossType === 'krag' ? 22 : 12);
+    const r = this.bossType === 'krag' ? new Krag(x, Level.GROUND, this.scale) : new Rival(x, Level.GROUND, this.scale);
     if (this.mode === 'duel') r.startDuel();
     // the entry cutscene plays except on duel retries, which go straight to the fight
     if (!(this.mode === 'duel' && (Game.runs.duel || 0) > 1)) r.cinematicIntro();

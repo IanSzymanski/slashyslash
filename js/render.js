@@ -77,7 +77,9 @@ const Render = {
       ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
     }
 
-    // emissive layer
+    // emissive layer: molten metal and KRAG's glowing marks on the street first, under everything else
+    Level.drawEmissive(ctx, cx, cy, t);
+    KragFX.draw(ctx, cx, cy);
     for (const e of G.enemies) if (!e.dead) e.drawEmissive(ctx, cx, cy);
     for (const h of G.hazards) h.drawEmissive(ctx, cx, cy);
     for (const pk of G.pickups) pk.drawEmissive(ctx, cx, cy);
@@ -214,6 +216,7 @@ const Render = {
   gatherLights(cx, cy, t) {
     const G = Game;
     Level.addLights(cx, cy, t);
+    KragFX.addLights();
     if (G.player) G.player.addLights();
     for (const e of G.enemies) if (!e.dead) e.addLights();
     for (const b of G.projectiles) if (b.addLights) b.addLights();
@@ -226,7 +229,7 @@ const Render = {
     const L = this.light.ctx;
     L.globalCompositeOperation = 'source-over';
     L.globalAlpha = 1;
-    L.fillStyle = Game.mod('blackout') ? '#2e2638' : '#9a84ac';
+    L.fillStyle = Level.foundry() ? Foundry.ambient() : Game.mod('blackout') ? '#2e2638' : '#9a84ac';
     L.fillRect(0, 0, VIEW_W, VIEW_H);
     L.globalCompositeOperation = 'lighter';
     const put = (x, y, r, color, a) => {
@@ -266,6 +269,7 @@ const Render = {
   },
   drawWeather(ctx, dt, cx, cy) {
     const sdt = Game.state === 'playing' || Game.state === 'menu' ? dt * Game.slowScale : 0;
+    if (Level.foundry()) { this.drawEmbers(ctx, sdt, cx, cy); return; }
     for (const w of this.weather) {
       w.ph += sdt;
       if (w.ash) { w.y += w.s * sdt; w.x += Math.sin(w.ph * 1.3) * 6 * sdt - 4 * sdt; }
@@ -279,6 +283,19 @@ const Render = {
         ctx.fillStyle = 'rgba(150,140,190,0.35)';
         pline(ctx, x, y, x - 1, y + 4, 1);
       }
+    }
+  },
+
+  // the Foundry's weather: embers rising through the hall, wavering, flickering as they cool
+  drawEmbers(ctx, sdt, cx, cy) {
+    for (const w of this.weather) {
+      w.ph += sdt;
+      w.y -= w.s * (w.ash ? 1.6 : 0.12) * sdt; w.x += Math.sin(w.ph * 1.7 + w.d * 5) * 10 * sdt;
+      const x = (((w.x - cx * w.d * 0.5) % VIEW_W) + VIEW_W) % VIEW_W;
+      const y = (((w.y - cy * w.d * 0.5) % VIEW_H) + VIEW_H) % VIEW_H;
+      const k = y / VIEW_H;
+      ctx.fillStyle = Math.sin(w.ph * 9 + w.d * 20) > 0.6 ? '#fff0c0' : k > 0.5 ? '#ff9a3a' : k > 0.25 ? '#ff6a1a' : '#8a2a10';
+      ctx.fillRect(Math.round(x), Math.round(y), 1, 1);
     }
   },
 
@@ -377,11 +394,12 @@ const Render = {
       const dummy = G.enemies.find((e) => e.type === 'dummy');
       if (dummy && dummy.dps !== undefined) drawText(ctx, 'DPS ' + dummy.dps, dummy.x - G.cam.rx, dummy.y - 34 - G.cam.ry, { align: 'center', color: '#ffd070' });
     } else if (D.wave > 0) {
-      const label = G.mode === 'duel' ? 'MELEE DUEL' : G.mode === 'boss' ? 'RIVAL FIGHT' : (G.mode === 'demo' ? 'DEMO ' : 'ENDLESS ') + 'WAVE ' + D.wave;
+      const label = G.mode === 'duel' ? 'MELEE DUEL' : G.mode === 'boss' ? 'RIVAL FIGHT' : G.mode === 'krag' ? 'KRAG FIGHT' : (G.mode === 'demo' ? 'DEMO ' : 'ENDLESS ') + 'WAVE ' + D.wave;
       drawText(ctx, label, VIEW_W / 2, 6, { align: 'center', color: '#ffd0d8' });
       let sub;
       if (D.state === 'fight') sub = D.remaining() + ' HOSTILES' + (D.modifier ? ' - ' + WAVE_MODIFIERS[D.modifier].name : '');
       else if (D.state === 'break') sub = D.wave >= D.lastWave() ? '' : 'NEXT WAVE ' + Math.ceil(D.breakT);
+      else if (D.state === 'portal') sub = 'STEP THROUGH THE PORTAL';
       if (sub) drawText(ctx, sub, VIEW_W / 2, 14, { align: 'center', color: '#9a8aa8' });
     }
     // score + combo
@@ -456,12 +474,14 @@ const Render = {
   },
   drawBossBar(ctx, b, t) {
     const w = 200, x = Math.round(VIEW_W / 2 - w / 2), y = 14;
-    drawText(ctx, b.name, VIEW_W / 2, 5, { align: 'center', color: '#bff8ff' });
+    drawText(ctx, b.name, VIEW_W / 2, 5, { align: 'center', color: b.barName || '#bff8ff' });
     ctx.fillStyle = '#0b0910'; ctx.fillRect(x - 1, y - 1, w + 2, 6);
     ctx.fillStyle = '#300a12'; ctx.fillRect(x, y, w, 4);
     const k = Math.max(0, b.hp) / b.maxHp;
-    ctx.fillStyle = b.stunT > 0 && ((t * 10) | 0) % 2 ? '#ffffff' : '#ff3048'; ctx.fillRect(x, y, Math.round(w * k), 4);
-    ctx.fillStyle = '#ff9aa8'; ctx.fillRect(x, y, Math.round(w * k), 1);
+    ctx.fillStyle = b.stunT > 0 && ((t * 10) | 0) % 2 ? '#ffffff' : b.barCol || '#ff3048'; ctx.fillRect(x, y, Math.round(w * k), 4);
+    ctx.fillStyle = b.barHi || '#ff9aa8'; ctx.fillRect(x, y, Math.round(w * k), 1);
+    // KRAG's heat and arm show only on its body
+    if (b instanceof Krag) return;
     if (!b.duel) { ctx.fillStyle = '#ffffff'; ctx.fillRect(x + w / 2, y - 2, 1, 8); }
     if (b.shield) {
       ctx.globalAlpha = 0.75;
@@ -474,14 +494,14 @@ const Render = {
   },
   drawIndicators(ctx) {
     const cam = Game.cam;
-    const things = Game.enemies.concat(Game.projectiles.filter((b) => b.indicator && b.hostile && !b.dead));
+    const things = Game.enemies.concat(Game.projectiles.filter((b) => b.indicator && b.hostile && !b.dead), Game.hazards.filter((h) => h instanceof Portal && h.indicator && !h.exit));
     for (const e of things) {
       if (e.dead) continue;
       const sx = e.x - cam.rx, sy = e.cy - cam.ry;
       if (sx > -4 && sx < VIEW_W + 4 && sy > -4 && sy < VIEW_H + 4) continue;
       const ex = clamp(sx, 8, VIEW_W - 8), ey = clamp(sy, 22, VIEW_H - 8);
       const a = Math.atan2(sy - ey, sx - ex);
-      ctx.fillStyle = e.indicator ? (((Game.realTime * 10) | 0) % 2 ? '#ffffff' : '#ff3030') : e.isBoss ? '#4af0ff' : e.windingUp() ? '#ffffff' : e.spawning ? '#ff9a3a' : '#ff5a3a';
+      ctx.fillStyle = e instanceof Portal ? (((Game.realTime * 4) | 0) % 2 ? '#ffffff' : '#ffb040') : e.indicator ? (((Game.realTime * 10) | 0) % 2 ? '#ffffff' : '#ff3030') : e.isBoss ? e.barCol || '#4af0ff' : e.windingUp() ? '#ffffff' : e.spawning ? '#ff9a3a' : '#ff5a3a';
       for (let i = 0; i < 4; i++) {
         const px = ex + Math.cos(a) * (3 - i), py = ey + Math.sin(a) * (3 - i);
         const h = i;

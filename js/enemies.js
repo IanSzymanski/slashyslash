@@ -109,6 +109,7 @@ class Enemy {
       if (this.y > floor) { this.y = floor; this.vy = Math.min(this.vy, 0); }
       if (this.y < -30) this.vy = Math.max(this.vy, 40);
     } else {
+      if (!stunned && this.onGround) this.leapLava();
       this.vy = Math.min(this.vy + 900 * dt * (this.flying ? 0.6 : 1) * Game.gravMul(), 520);
       if (this.onGround && stunned) this.vx = approach(this.vx, 0, 700 * dt);
       else if (!this.onGround && stunned) this.vx = approach(this.vx, 0, 120 * dt);
@@ -117,6 +118,15 @@ class Enemy {
     if (this.x < 44) { this.x = 44; this.vx = Math.abs(this.vx) * 0.3; }
     if (this.x > Level.W - 44) { this.x = Level.W - 44; this.vx = -Math.abs(this.vx) * 0.3; }
     if (this.y > Level.H + 60) { this.dead = true; Game.onKill(this, { cause: 'fall' }); }
+  }
+  // The Foundry: walking up to a molten gap, it leaps across rather than walk in.
+  leapLava() {
+    const dir = sign(this.vx);
+    if (!Level.lava.length || !dir || Math.abs(this.vx) < 20 || this.jumpCD > 0) return;
+    const g = Level.lavaAt(this.x + dir * (this.w / 2 + 4));
+    if (!g || Level.lavaAt(this.x)) return;
+    const far = dir > 0 ? g.x1 + this.w / 2 + 6 : g.x0 - this.w / 2 - 6;
+    this.vy = -330; this.vx = (far - this.x) / 0.7; this.onGround = false; this.jumpCD = 0.6;
   }
   groundChase(dt, spd, stopDist) {
     const p = Game.player, dx = p.x - this.x;
@@ -497,7 +507,7 @@ class Enemy {
 function hurtEnemy(e, dmg, o = {}) {
   if (e.dead || e.spawning || e.dying) return 0;
   if (e.shielded && e.shielded(o)) { e.shieldHit(o); return 0; }
-  if (e.intercept && e.intercept(o)) return 0;
+  if (e.intercept && e.intercept(o, dmg)) return 0;
   if (e.dodging && e.dodging()) {
     if (!e._missT || Game.time > e._missT) { e._missT = Game.time + 0.4; FX.text('DODGE', e.x, e.y - e.h - 8, { c: '#7af0ff', always: true, dur: 0.5, vy: -20 }); }
     return 0;
@@ -508,7 +518,7 @@ function hurtEnemy(e, dmg, o = {}) {
   if (e.gateDamage) d = e.gateDamage(d);
   e.hp -= d;
   e.hitFlash = 0.08;
-  if (!o.noKnock) {
+  if (!o.noKnock && !e.immovable) {
     const m = e.heavy ? (o.heavy ? 3 : 9) : e.mass;
     e.vx = (o.kx || 0) / m + e.vx * 0.2;
     const ky = (o.ky || 0) / m;
@@ -531,6 +541,7 @@ function hurtEnemy(e, dmg, o = {}) {
   if (o.hitstop) Game.hitstop(o.hitstop);
   if (o.shake) Game.shake(o.shake);
   Game.registerHit(d, o.cause);
+  if (e.onHurt) e.onHurt(d, o);
   if (e.hp <= 0) killEnemy(e, o);
   return d;
 }

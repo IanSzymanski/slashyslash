@@ -1,6 +1,6 @@
 # SlashySlash
 
-A 2D side-scrolling action demo: a small cyborg with a red katana, fast Warframe-style movement, and an electric tether, fighting scrap gangs and a rival cyborg in a ruined city. Pixel art, sound effects and music are all generated in code, so there are no asset files.
+A 2D side-scrolling action demo: a small cyborg with a red katana, fast Warframe-style movement, and an electric tether, fighting scrap gangs, a rival cyborg and a molten brawler in a ruined city and a forge hall. Pixel art, sound effects and music are all generated in code, so there are no asset files.
 
 ## Running it
 
@@ -92,12 +92,13 @@ Every binding can be changed in **Settings → Controls** (two slots per action)
 ## Modes
 
 - **Wave Demo:** six scripted waves, each introducing an enemy that one move answers (shields for parry, armour for plunges, grenades for the tether rebound, snipers for the tether zip), then the rival. The results screen offers a jump straight into endless.
-- **Endless Survival:** waves grow in size and toughness without limit. Every fifth wave is a heavy wave with extra brutes, and every eighth brings the rival back, tougher each time (toggle in settings). Your best wave and score are saved.
+- **Endless Survival:** waves grow in size and toughness without limit. Every fifth wave is a heavy wave with extra brutes. It travels between two regions: wave 8 in the city is the rival; when it falls a portal opens (an arrow at the screen's edge points to it), and stepping through takes the run to the Foundry, with score, wave count, upgrades, health, shield and the ultimate's charge carried over. Three waves there, then KRAG; when KRAG falls a portal opens back to the city, where after three waves the rival comes again, and so on round, the bosses tougher each time (a toggle in settings turns the bosses off; the portal still opens after each region's last wave). Your best wave and score are saved.
   - **Upgrades:** after waves 2, 5, 8 and so on, pick one of three. Each changes how a move works and costs something elsewhere: Arc Conductor (longer, weaker counter lightning), Volt Hook (exploding tether strikes, no refund), Ember Wake (dashes cut, slower recharge), Open Guard (wider parry, no refund), Breaker (heavier finisher, lighter openers), Aftershock (plunge ground waves, weaker impact), Glass Edge (deal and take more), Bloodline (kills heal, slower shield).
   - **Wave modifiers:** from wave 4, about half the regular waves carry one: Elites (gold-outlined, tougher, worth double), Glints Only (no `!` markers), Low Gravity, or Blackout (street lights off).
 - **Rival Fight:** straight into the AEGIS-07 fight.
+- **KRAG Fight:** straight into the KRAG fight, in the Foundry.
 - **Melee Duel:** a test mode for practising the parry, clash and riposte exchange. AEGIS-07 lands, plays the enrage cutscene, and fights its blade-only second phase at full health. Retries skip the cutscene. Winning plays the knockout but doesn't unlock the character.
-- **Training:** an anchored dummy with a damage-per-second readout that can swing at you on a timer for parry practice. Pause opens a panel to spawn any enemy or the rival (either phase) in front of you, toggle upgrades and wave modifiers, refill, and charge the ultimate. You can't die.
+- **Training:** an anchored dummy with a damage-per-second readout that can swing at you on a timer for parry practice. Pause opens a panel to spawn any enemy, the rival (either phase) or KRAG (cold, or a moment from full heat) in front of you, toggle upgrades and wave modifiers, refill, and charge the ultimate. You can't die.
 
 Enemies:
 
@@ -147,6 +148,33 @@ The fight has two phases and no reinforcements.
 
 Defeating it sets `SaveData.unlocks.aegis`. Its palette, weapon, name and utility slot live in `CHARACTERS` in `js/rival.js`, ready for a character select.
 
+### KRAG, the Molten Fist
+
+The second boss, ported from the 3D version (`slashyslash2`) with the same rules and timings. A hulking cyborg about one and a half times your height, built of rust-brown stone blocks with molten seams glowing between them, a small dark helmet sunk between its shoulders with three glowing slits, a core burning in its chest, and an onyx left arm: a great spiked pauldron, spikes down the forearm, and a fist as wide as its chest with its plates glowing between the knuckles. A mohawk of flame rises off its crest. It has 1,500 health (the rival has 900), never dodges, never backs off, and nothing you hit it with interrupts what it's doing. Everywhere it walks it leaves smouldering footprints, and every footfall shakes the street.
+
+**Heat.** It runs hot, shown only on its body: the seams go from dull red through orange to white, steam pours off it, embers drift off it and the mohawk grows. Heat builds from fighting (about 2 a second), a little with every blow it throws, and most from blows it lands on you (10) or that you parry (6) and from its stomps. At full heat the mohawk tears up off its head with an orange pulse and a roar. Only then can it throw the Molten Fist; throwing it, or having its arm go off, takes it back to cold.
+
+**The arm.** The onyx arm's durability is separate, also shown only on its body. Blows on its guard wear it: the plates go ashen, fractures split open glowing dull red, then orange to white, it smokes and sheds chips, and a blocked blow goes from a solid clang to cracking and splintering. Then it breaks: the guard shatters (4% of its health), it reels, and it can't guard for 8 s before the arm re-forms half worn. Left alone for 4 s, a worn arm mends.
+
+**Strings.** Up close it fights in fast strings of jabs, crosses, hooks, elbows, knees and kicks, stepping in after you if you get out of reach. A parry doesn't stop a string blow: you take no damage, but you're shoved back, lose 6 shield and get no counter. Dodge them. Their only tell is a flick of embers and a grunt. Each string ends on a stopper (a haymaker, an uppercut, a hammer fist with a shockwave, a spinning backfist, a flying knee), which is gold from the start of its longer wind-up: a gold outline, gold fire round the limb, gold rings closing on its feet, a deep gong, then a big gold glint and a bell. Parry that and it's knocked off balance and your counter charges.
+
+**The guard.** It only blocks when you're a threat at range (holding a counter ready, a crucible or barrel thrown at it, your tether on it, ranged hits landing) or right after you've staggered it. A blue flash off the arm comes first; blows still land in full until the arm is up. Then blows from the front do 15% and wear the arm; it turns slowly, so you can get round it, and if you crowd it in front it shoves you off. At full heat the arm is a liability, so it only guards on instinct after a stagger, or against something big (and not always): the arm glows white and crackles. Hit it then and all its heat goes off in its face: 12% of its health, a blast that throws it on its back, and a 3.4 s stun, its only one. The classic bait: parry a stopper at full heat and hold the counter, so it lands on the guard it raises.
+
+**The Molten Fist** is its red flash: no parry. It draws the arm far back in bullet time inside a red shell while the street splits red under it, and the street it will split is marked in red from its feet a long way ahead (at least 290 px, and 150 px past where you stood), running down off any ledge onto the ground below. It tracks you for the first half of the wind-up; then its visor flashes red and the line holds, and just before the blow it flashes white. Dash protection doesn't save you, it's too long to outrun, and dropping a level doesn't help. Get behind it (its body is a wall while it winds up: dash through it, or jump over its head) or get well above it. It hits for 55 straight to health, throws you and leaves you dazed for 1.5 s (sparks circle your head and nothing you press does anything). The chasm then glows for about four seconds, erupting in vents (never right under you while you're dazed), and seals all at once in a hiss of steam. A miss leaves it hunched over the smoking arm for 1.9 s.
+
+**Getting to you.** Shoulder charges (the pauldron dropped, a gold glint, then a drive at you that tears a furrow and explodes on contact or against a wall; parry it), stomps (a foot hauled up and driven down, glowing cracks splitting out at you, a shockwave each way and molten vents raised along the street, three in a row more often as it rages), and from far off a leap onto where you're heading (a ring and cross on the street blinking faster as it falls) or its chain: it bites into something high (a girder, a gantry, a lamp's head), swings out under it like a pendulum, feet dragging sparks, and lets go on the upswing to fling itself at you, gold-glinting before it lands with a blast, shockwaves and vents. A molten vent is a glowing crack that bubbles and pulses faster, then bursts into a column of fire that throws you into the air.
+
+**Cutscenes.** It arrives out of the ground: the street quakes and splits in glowing cracks, fire spits out of them, then the street bursts and it's thrown up out of it, lands in a crouch with a blast, stands steaming as its mohawk catches, roars, and its title hits (FOUNDRY FRAME, THE MOLTEN FIST) as it beats its fist into its palm. The last hit freezes into slow motion: it staggers, vents, drops to one knee with the fist planted and falls on its face as its fire goes out. Its husk smokes in the street until the next wave.
+
+### The Foundry
+
+The second region, KRAG's: a forge hall under an open roof of trusses, with embers rising instead of rain and sodium work lamps instead of street lamps (a Blackout puts the lamps out; the molten metal still glows).
+
+- **The molten river.** The blast furnace at the west end pours molten iron from its tap into a trench that runs along the floor to a drain, crossed by three grated bridges. Anything that falls in is burned and thrown back out onto the nearer bank: you take a little (14), an enemy you knock in takes a lot (42, worth style), a crucible bursts, KRAG just climbs out. Enemies leap the molten gaps rather than walk in. The furnace has catwalks up its face, and a walkway crosses over the river.
+- **Ladles.** Two gantry cranes each hang a ladle of molten metal. Hit one (a jumping slash reaches it, as does a blast under it) or yank it on the tether, and it tips toward the side the blow came from and pours: the stream burns whatever is under it (48 to an enemy, 18 to you) and spreads into a pool of slag that burns whatever stands in it. It hangs empty until the next wave fills it.
+- **Crucibles** of slag stand where the city has red barrels: they light, throw and burst the same way, but leave a pool of slag.
+- **Conveyors** under the second gantry run opposite ways and carry whatever stands on them. Around them: an ore hopper, ingots, a scrap heap, casting molds with metal cooling in them, a hydraulic press whose crosshead you can stand on, and a storage rack stepping up to a catwalk. A rolling mill's flywheel and gears turn on the back wall.
+
 ## Settings
 
 - **Enemies:** difficulty presets plus individual sliders for health, damage, speed, count, attack frequency (which also sets how many enemies may attack at once) and wind-up time; max enemies on screen; break length between waves; per-type toggles for all eight enemy types; the endless rival; parry window; kills needed for the ultimate; a practice mode where you can't take damage.
@@ -165,17 +193,19 @@ Plain JavaScript, loaded as classic scripts so the game runs from `file://`.
 | `js/input.js` | Keyboard and mouse state, rebindable actions |
 | `js/audio.js` | WebAudio sound effects and the step-sequenced music |
 | `js/fx.js` | Particles, dithered slash arcs, lightning, rings, gibs, afterimages |
-| `js/level.js` | City geometry, body physics, prerendered parallax layers |
+| `js/level.js` | Region loading, city geometry, body physics, prerendered parallax layers |
+| `js/foundry.js` | The Foundry region (layout, painting, molten river, conveyors), crucibles, ladles, slag pours and pools, and the portals between regions |
 | `js/sprites.js` | Skeleton IK helpers and outlined sprite compositing |
 | `js/player.js` | Movement, combat, parry, tether, shield and the player rig |
 | `js/ultimates.js` | Ultimate ability registry and the Sawblade |
 | `js/utilities.js` | Utility (`F`) registry and Overload |
 | `js/enemies.js` | Enemy AI, projectiles, rubble, shockwaves, barrels, pickups |
 | `js/rival.js` | AEGIS-07 boss, its cutscenes, pulse grenade, knocked-out husk, and the `CHARACTERS` registry |
+| `js/krag.js` | KRAG boss: heat, the onyx arm, strings and stoppers, the guard and its detonation, the Molten Fist and its chasm, vents, charge, leap, chain swing, its sprite, cutscenes and husk, and its glowing marks on the street |
 | `js/specialists.js` | Shield scrapper, armoured crawler, grenadier and rooftop sniper |
 | `js/upgrades.js` | Endless upgrade registry, wave modifiers, Aftershock ground wave |
 | `js/training.js` | Training dummy, spawn panel |
-| `js/waves.js` | Demo waves, endless wave generation, rival waves |
+| `js/waves.js` | Demo waves, endless wave generation and region travel, boss waves |
 | `js/render.js` | Frame composition, lighting, weather, HUD |
 | `js/ui.js` | Menus, results screen and settings panel |
 | `js/main.js` | Game state, fixed 120 Hz simulation, camera, cutscene and bullet-time state, main loop |

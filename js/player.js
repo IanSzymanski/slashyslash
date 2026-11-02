@@ -56,7 +56,7 @@ class Player {
     this.facing = 1; this.onGround = false; this.col = null; this.dropThrough = false;
     this.hp = PC.MAX_HP; this.shield = PC.MAX_SHIELD; this.shieldDelay = 0; this.shieldFlash = 0; this.regenOn = false;
     this.dashCharges = PC.DASH_CHARGES; this.dashRecharge = 0; this.dashT = 0; this.dashVX = 0; this.dashVY = 0;
-    this.iframes = 0; this.hurtT = 0;
+    this.iframes = 0; this.hurtT = 0; this.dazeT = 0;
     this.coyote = 0; this.jumpBuf = 0; this.airJumps = 1; this.jumpCuttable = false;
     this.crouching = false; this.sliding = false; this.slideT = 0; this.dropHoldT = 0; this.dropT = 0; this.crouchTapT = -1;
     this.dashBuf = 0; this.dashHold = 0; this.parryBuf = 0; this.parrySpam = 0; this.shieldWasFull = true; this.shieldFullFlash = 0;
@@ -100,7 +100,7 @@ class Player {
     this.aimAngle = Math.atan2(m.y - cy, m.x - cx);
 
     const dec = (k) => { if (this[k] > 0) this[k] = Math.max(0, this[k] - dt); };
-    for (const k of ['iframes', 'hurtT', 'coyote', 'jumpBuf', 'attackCD', 'landLag', 'postPose', 'parryCD', 'parryFlash', 'dashEndT', 'shieldOffT', 'dropT', 'wallJumpLock', 'landSquash', 'shieldFlash', 'spinT', 'bulletT', 'blinkT', 'parryBuf', 'dashHold', 'shieldFullFlash', 'utilT', 'utilFlash']) dec(k);
+    for (const k of ['iframes', 'hurtT', 'coyote', 'jumpBuf', 'attackCD', 'landLag', 'postPose', 'parryCD', 'parryFlash', 'dashEndT', 'shieldOffT', 'dropT', 'wallJumpLock', 'landSquash', 'shieldFlash', 'spinT', 'bulletT', 'blinkT', 'parryBuf', 'dashHold', 'shieldFullFlash', 'utilT', 'utilFlash', 'dazeT']) dec(k);
     this.parrySpam = Math.max(0, this.parrySpam - dt / PC.PARRY_SPAM_DECAY);
     if (this.onGround) this.hoverAvail = true;
     if (this.dropT <= 0) this.dropThrough = false;
@@ -129,6 +129,17 @@ class Player {
     if (this.dead) { this.updateDead(dt); return; }
     if (this.ult) { getUltimate(this.ult.id).update(this, dt); this.updateScarf(dt); return; }
 
+    // dazed (KRAG's Molten Fist): nothing you press does anything until it clears
+    if (this.dazeT > 0) {
+      this.vx = approach(this.vx, 0, (this.onGround ? PC.FRICTION : PC.AIR_DRAG) * dt);
+      this.vy = Math.min(this.vy + PC.GRAV * Game.gravMul() * dt, PC.MAX_FALL);
+      this.updateTether(dt);
+      const wasG = this.onGround, pvy = this.vy;
+      const c = Level.moveBody(this, dt, { step: 11 });
+      if (c.ground && !wasG) this.onLand(pvy);
+      this.updateScarf(dt);
+      return;
+    }
     const left = Input.isDown('left'), right = Input.isDown('right');
     const up = Input.isDown('jump'), down = Input.isDown('crouch');
     const mx = (right ? 1 : 0) - (left ? 1 : 0);
@@ -1334,7 +1345,18 @@ class Player {
     Game.hitstop(0.05);
     Game.stats.damageTaken += h.dmg;
     if (this.hp <= 0) this.die();
+    else if (h.daze) this.dazeFor(h.daze);
     return 'hit';
+  }
+  // Knocked senseless for dur seconds: whatever you were doing stops, and nothing you press does anything.
+  dazeFor(dur) {
+    if (this.dead || this.ult) return;
+    this.dazeT = Math.max(this.dazeT, dur);
+    if (this.sheathe) this.cancelSheathe();
+    if (this.tether) this.releaseTether();
+    this.attack = null; this.attackQueued = null; this.atkPend = null; this.plunge = null; this.iaido = null; this.kickAnim = null;
+    this.dashT = 0; this.ultHold = 0; this.stopLoop('ult'); this.sliding = false;
+    if (this.crouching && this.setHeight(PC.H)) this.crouching = false;
   }
   // Got behind the red flash: a burst of afterimage and a beat of slow motion.
   perilDodge(src) {
@@ -1431,6 +1453,13 @@ class Player {
       const k = clamp(this.deadT / 0.35, 0, 1);
       o.rot = -1.45 * k; o.hipY = -10 + 4 * k; o.fF = [4, -1]; o.fB = [-1, -1]; o.lean = -0.2;
       o.hF = [5, -4]; o.hB = [-4, -2]; o.swordAng = 0.2;
+      return o;
+    }
+    if (this.dazeT > 0) {
+      // slumped and swaying, the blade hanging
+      o.lean = 0.3 + Math.sin(this.animT * 5) * 0.08; o.hipY = -8; o.fF = [4, -1]; o.fB = [-3, -1];
+      o.hF = [4, -4]; o.hB = [-2, -4]; o.swordAng = 1.45;
+      if (!this.onGround) { o.fF = [3, -4]; o.fB = [-3, -2]; }
       return o;
     }
     if (this.iaido) {
@@ -1710,6 +1739,14 @@ class Player {
     }
     if (this.ult) { getUltimate(this.ult.id).drawEmissive(this, ctx, camX, camY); return; }
     const [cx, cy] = this.chest();
+    if (this.dazeT > 0 && this._visor) {
+      // sparks circling the head
+      for (let i = 0; i < 4; i++) {
+        const an = this.animT * 9 + (i * TAU) / 4;
+        ctx.fillStyle = i % 2 ? '#ffd070' : '#ffffff';
+        ctx.fillRect(Math.round(this._visor[0] - camX + Math.cos(an) * 6), Math.round(this._visor[1] - camY - 6 + Math.sin(an) * 2), 1, 1);
+      }
+    }
     if (this.sheathe) {
       const s = this.sheathe, r = 14;
       // ring drains as the parry window closes; gold once a parry lands

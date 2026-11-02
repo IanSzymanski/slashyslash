@@ -73,8 +73,8 @@ registerUltimate({
           if (e.isBoss && T.grindTotal > 1.2) {
             p.releaseTether();
             p.vx = sign(p.x - e.x || 1) * 420; p.vy = -300;
-            FX.ring(e.x, e.cy, 4, 40, 0.3, { c: '#4af0ff', core: '#ffffff', w: 2 });
-            FX.text('THROWN OFF', e.x, e.y - 36, { c: '#4af0ff', always: true, dur: 0.8, vy: -22 });
+            FX.ring(e.x, e.cy, 4, 40, 0.3, { c: e.barCol || '#4af0ff', core: '#ffffff', w: 2 });
+            FX.text('THROWN OFF', e.x, e.y - 36, { c: e.barCol || '#4af0ff', always: true, dur: 0.8, vy: -22 });
             Sound.play('shieldDeflect');
             Game.shake(0.3);
             return;
