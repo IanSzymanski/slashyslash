@@ -1,0 +1,120 @@
+# Technology, presentation, and migration audit
+
+Audit date: 2026-11-14. Inspected revision: `d45fd63`. This is a source and documentation review; no engine prototype, target-hardware benchmark, listening session, or multiplayer test was performed for this sub-audit. The user clarified: sole creator, PC first, likely LAN co-op, no deadline, and a budget centered on existing AI subscriptions with optional additional asset tools. Recommendations use those constraints and retain the side-view 2D premise.
+
+## Recommendation
+
+Start a new **Godot 2D project**, keep the browser game intact as the playable combat reference, and require a small two-player LAN extraction slice to earn further investment. This is a new production foundation for a substantially different game, rather than an expensive literal port of the arcade game. Do not first build the city, inventory economy, or full asset library in this codebase.
+
+Godot is the default recommendation because the clarified solo, PC-first, low-recurring-cost, LAN scope favors its dedicated 2D workflow and permissive license over a wider service ecosystem. It can supply the requested asset-based sprites, shaders, lighting, audio playback and local networking. This is an engineering judgment about workflow fit, not a claim that another engine cannot deliver it. Unity 2D with URP remains a credible second choice if existing C# or Unity experience, specific tooling, or future platform needs outweigh Godot's simplicity. Unreal becomes attractive if the project changes to heavily 3D environments with 2D characters, or the creator already has strong Unreal expertise; its rendering ceiling alone is insufficient reason to choose it for this game.
+
+An engine change does not resolve combat fairness, economy, scope, content production, or network prediction automatically. The primary reason to change is to stop building the authoring, asset, world, profiling, and multiplayer infrastructure alongside the game.
+
+## What the implementation actually provides
+
+| Evidence | Implication |
+| --- | --- |
+| Approximately 9,044 lines across 19 `js/*.js` files; classic ordered scripts at `index.html:96–114`; `tools/build.js:13–19` simply inlines scripts/styles | A compact prototype, no asset import/build system or modular content compiler. Line count is not a cost estimate. |
+| `js/render.js:8–17` creates Canvas2D contexts and low-resolution scratch layers; `js/util.js:4–5` fixes 480×270 | Current rendering has useful composition concepts, but no shader/material pipeline. Browser technology is capable of assets and WebGL; retaining this exact renderer is a workflow choice, not a browser necessity. |
+| `js/sprites.js:2–3,13–40` draws body parts into a scratch canvas and outlines them; animation and drawing also live in the 1,750-line player and 1,726-line rival files | Authored spritesheets require replacing presentation code and separating it from gameplay. Character customization currently follows procedural rigs/palettes, not an asset production pipeline. |
+| `js/audio.js:10–63,96–129` creates noise, oscillators, reverb and gains; `669–763` sequences a four-bar, 132 BPM musical pattern and mixes intensity layers | The event vocabulary and intensity concept are reusable. SFX recordings and an authored soundtrack need a new asset catalog, playback/mix implementation, and content. Source establishes how audio is made, not how good it sounds to a listener. |
+| `js/level.js:5,12–70` builds one 2400×440 arena from coordinates; `18–19` explicitly makes buildings pass-through scenery | This is not a sprawling exploration world or streaming framework. Collision, routes, interiors, districts, persistent state and encounter placement need new authoring. |
+| `js/main.js:13–19,279–315` stores one player, global enemy/projectile collections and updates them together | Session, world, actor, and presentation responsibilities need boundaries. More than one player is a structural change. |
+| `js/player.js:95–100` reads global camera/input; `js/enemies.js:122,140,151,179` and specialist AI use `Game.player` | A second controller/camera does not create co-op. Target selection, ownership and per-player state must be redesigned. |
+| `js/main.js:260–266` simulates at 120 Hz with a ten-step cap; `285–300` separates all enemy pairs; `js/level.js:74–90` scans geometry lists | Fixed updates are a useful starting point. The current arena-sized algorithms have not been demonstrated to scale to a city. Use active district simulation, spatial queries and profiling rather than assuming a faster engine makes unbounded simulation inexpensive. |
+| `js/settings.js:87–91` saves scores, completion, kills and an unlock as local JSON | There is no gear/stash/world save model or extraction transaction. Saving valuable persistent items demands stable IDs, schema versions, backup/recovery and explicit commit rules. |
+| `tools/smoke-test.js:24–25,27–55` uses invincibility, random inputs, forced boss phase changes, and bounds checks | Useful crash coverage; not evidence of combat balance, player learning, network correctness, save integrity, or production performance. |
+| `js/util.js:11–14` uses global `Math.random`; gameplay and visual code consume randomness | A fixed timestep alone does not provide deterministic replays or network lockstep. Separate seeded simulation randomness from presentation randomness. |
+
+The existing `docs/3d-plan.md` describes a separate Three.js/3D branch and preserves a no-asset constraint. The new request explicitly prefers 2D with authored assets. Treat that earlier direction as superseded for this project; do not let it dictate engine or art choices.
+
+## Engine decision
+
+| Route | What it buys | Cost/risk for this vision | Verdict |
+| --- | --- | --- | --- |
+| Continue current JS/Canvas2D | Fast iteration in familiar code; tiny downloadable prototype; immediate preservation of current feel | Must build asset authoring/import, maps, persistence, editor tooling, network protocol and shader rendering integration; existing singleton structure still needs replacement | Keep as a laboratory. Choose for production only if browser distribution is a hard requirement and the team deliberately accepts tooling work and a smaller scope. |
+| Unity 2D + URP | 2D lights, pixel-perfect camera, sprite/tilemap/editor workflows, material tooling, C# data/content architecture, available networking frameworks | Editor learning and package choices; action prediction, saves and content pipeline remain project work | Strong second choice when existing expertise or a particular tool makes creation materially faster. |
+| Godot | Dedicated 2D scene workflow, sprite animation, tilemap layers, shaders, 2D lighting, high-level multiplayer; MIT licensing | Still needs custom movement/network responsiveness, persistence and production tooling; future console/internet expansion needs separate planning | Recommended for the clarified solo PC/LAN scope. Pin a stable release after the spike. |
+| Unreal + Paper 2D | Sprites/flipbooks/tilemaps alongside Unreal rendering and multiplayer architecture | Larger 3D-oriented workflow than the current 2D brief needs; bespoke 2D combat/content tooling still required | Conditional choice for Unreal expertise or a deliberate 2D/3D hybrid art direction. |
+
+Official documentation checked for this audit supports the capabilities, not the subjective ranking: [Unity 2D in URP](https://docs.unity.com/en-us/engine/6000.3/manual/unity2d/2d-urp), [Unity netcode framework overview](https://docs.unity.com/en-us/multiplayer/netcode/netcode), [Godot 2D lighting](https://docs.godotengine.org/en/stable/tutorials/2d/2d_lights_and_shadows.html), [Godot multiplayer](https://docs.godotengine.org/en/stable/tutorials/networking/high_level_multiplayer.html), [Unreal Paper 2D overview](https://dev.epicgames.com/documentation/en-us/unreal-engine/2d-in-unreal-engine), [Unreal networking overview](https://dev.epicgames.com/documentation/en-us/unreal-engine/networking-overview-for-unreal-engine).
+
+Unity's official overview distinguishes its GameObject networking framework from its DOTS framework with client prediction. Do not equate adding a network-transform component with solving frame-sensitive parries and dashes. Select the networking implementation through an actual latency test.
+
+Godot is free and MIT-licensed; distribution requires retaining its copyright/license notices, while the creator chooses the license for their game content ([official license](https://godotengine.org/license/)). Unity offers Personal subject to its eligibility terms ([official Personal page](https://unity.com/products/unity-personal)); Unreal's game licensing is royalty-based after its stated product-revenue threshold ([official licensing](https://www.unrealengine.com/license)). Exact costs are not needed to make this audit's choice. Review then-current terms before distribution. LAN hosting does not require purchasing a matchmaking or relay service.
+
+## Carry forward, reinterpret, or replace
+
+**Carry forward as specifications and reference footage:** movement distances/timing, attack commitment and buffer rules, enemy telegraph grammar, tether and grenade rebound concept, style variety incentive, modular utility/ultimate idea, selected sound event names, training-room tools, settings intent, and tested bug fixes. Record movement and action traces before reimplementation so the feel has measurable reference points.
+
+**Reinterpret:** enemy roles as encounter ecology, arcade modifiers as expedition conditions, wave upgrades as module candidates, rival as a story-linked boss, shield/resource coupling as an explicit design choice, and style scoring as a bounded extraction reward. None should be ported unquestioned.
+
+**Replace:** global single-player simulation/input/camera, global time manipulation, procedural sprite/environment synthesis, oscillator soundtrack/SFX, wave director, localStorage progress structure, hardcoded arena, score-centric results/UI. Most production code will be new; attempting a direct line-for-line conversion preserves the wrong assumptions. Art is replaceable, as requested.
+
+An appropriate new boundary is: input commands → actor/action simulation → combat events → presentation/audio. Separately: world/encounter state; expedition lifecycle; persistent character/stash/base; content definitions. Use stable definitions for moves, weapons, modules, enemies, loot tables and recipes. Keep unique item instances separate from item definitions. A move's damage/active window belongs to a simulation clock; the displayed animation follows that clock. Gameplay should not depend on render frame rate or on a cosmetic animation event firing on a remote machine.
+
+Do not mandate ECS, a custom engine, or a large backend before the slice proves a need. A small set of explicit services and data definitions is enough initially.
+
+For a concrete Godot start: use typed GDScript unless the creator already prefers C#; separate the character movement/action code from `AnimatedSprite2D`/`AnimationPlayer` presentation; define moves, items and encounters as Resources; make reusable actors/rooms as scenes; author districts with tilemap layers; use audio buses and authored streams; isolate ENet session ownership from game rules. Preserve the current intentionally fast movement using a custom controller on the engine's collision queries rather than expecting default physics values to recreate it.
+
+## Co-op is an early architecture requirement
+
+Start with two-player LAN PvE and prove it before promising four; four players are a stretch target. The user has requested co-op, not PvP or an MMO. Use a host-authoritative ENet session: host owns enemies, combat results, drops, interactables, extraction and expedition clock; clients present local movement/actions immediately and reconcile authoritative outcomes; remote actors interpolate; durable loot commits use unique transaction IDs. Personal progression and the host's world/base progression need distinct ownership. Local saves imply a trusted-friends economy, not cheat-proof global trading. Provide host/join-by-local-address first; LAN discovery is optional convenience. Do not build accounts, matchmaking, paid hosting, a live economy, or host migration for the slice. Define a fair session-abort/recovery policy for host departure.
+
+The biggest existing incompatibility is **global time control**. `js/main.js:93–118` changes simulation freeze/slow state; `260–266` applies that state to every actor. `startCine` at `129–141` locks shared input. `pause` and window blur also pause the whole session. Multiple players cannot independently freeze everyone whenever they parry. Use local camera, animation, sound and VFX emphasis for ordinary impacts; shared boss transitions require explicit server-managed rules and short agreed pauses. Any gameplay effect that changes speed must be authoritative and designed for all participants. Solo can retain optional cinematic treatment while authoritative action windows stay clear.
+
+Also specify before content production:
+
+- Who gets a drop, who can pick it up, whether it can be traded, and whether one player's extraction leaves others behind.
+- Downed/revive costs, aggro reassignment and encounter pressure by active party size.
+- A joining player's spawn and access; reconnect identity; timeout/disconnect treatment; host departure policy.
+- When carried gear leaves the stash, when loot becomes permanent, and how a repeated completion packet is made harmless.
+- Host-owned base vs personal bases; guest quest/lore credit; mixed progression matchmaking rules.
+- Normal menus do not pause online play. Threat-critical UI remains visible through loot inspection.
+
+Do not defer networking until after the complete solo game. That would require revisiting action timing, enemy targeting, cinematic behavior, inventory transactions and every progression system simultaneously.
+
+## Graphics and asset production
+
+Keep a coherent pixel-art base, upgrade animation/lighting/material response, and prioritize readable motion over the number of effects. Complex VFX should communicate attack direction, surface/material, force, faction, danger, and payoff. Do not add a bright effect for every stat proc.
+
+Before bulk generation, make an art bible containing sprite scale, logical render resolution, palette roles, silhouette hierarchy, outline policy, lighting direction, frame timing, camera framing, and per-effect brightness/coverage limits. Compare the existing 480×270 against a 640×360 mock combat scene; choose after checking body/weapon readability and camera reaction distance. The UI may render at a higher resolution than the world. More pixels and more particles are separate decisions.
+
+Build one polished character/enemy/environment sample first:
+
+- Authored body animation and weapon frames with consistent pivots, feet, proportions, attack arcs and hit poses. Keep core silhouette recognizable under every loadout.
+- Tile/environment kits with foreground occluders, damaged variants, strong landmarks, parallax backgrounds, decals and purposeful interiors. Add normal/emission maps where they demonstrably improve the look.
+- Authored slash/impact/explosion flipbooks, particles using authored textures, subtle distortion, bounded bloom, localized lights and weather. These still execute in real time; the request is best satisfied by authored source assets and authored effect presets instead of runtime synthesis of the art itself.
+- A protected cue layer for threat tells, enemy targeting and the player silhouette. Color is reinforced by shape/motion/sound. Enemy tells must survive darkness, co-op VFX and low-effects settings.
+- Per-scene budgets for visible actors, overlapping lights, particles, transparency and audio voices, established by profiling the slice. Do not invent final maximums without target hardware.
+
+Huge equipment customization creates an animation multiplication problem: body frames × gear pieces × directions × weapon families. Decouple most statistical modules from visible geometry, use a limited set of attachment slots and palette/material variants, and reserve complete bespoke animation sets for weapon families that materially change play. A curated set of distinct silhouettes is more sustainable than independently generated frames for every random item.
+
+**AI-assisted pipeline:** produce approved concept/pose sheets → define exact sprite dimensions/pivots/palette → generate a small action sequence against those references → manually clean silhouette, hands, blade length, frames and pixel grid → pack atlas plus frame metadata → import with fixed settings → inspect in motion at game scale and against hitboxes → review final licensing/source records → commit source and export. Generate assets offline. Do not assume a single generated spritesheet provides consistent animation, aligned cells or production-ready collision. Use AI for exploration and assistance; budget deliberate animation and audio editing work.
+
+**Minimal solo toolchain:** Godot for integration; [Pixelorama](https://orama-interactive.itch.io/pixelorama) for pixel animation, tile editing and cleanup, or [Aseprite](https://www.aseprite.org/) if its dedicated workflow is preferred; [Krita](https://krita.org/en/) for concept paintovers and larger art; [Audacity](https://www.audacityteam.org/) for recording, trimming, cleaning and preparing sound files. Add [REAPER](https://www.reaper.fm/) only when multitrack music/stem arrangement and mixing justify it. Pixelorama, Krita and Audacity provide an economical starting toolset; Aseprite and REAPER are optional purchases, not prerequisites. Their official pages describe the features relevant here. Use existing AI access first for concept exploration, texture/prop candidates, reference sheets and drafting asset metadata. Consider a dedicated generated-SFX or generated-music service only after testing whether its exports, commercial-use terms, repeatability, stem quality and loop editing materially improve this workflow. No additional AI vendor is presumed necessary or endorsed by this audit.
+
+Each asset should have an ID, source/master, export settings, palette/version, author/source provenance, and usage references. Validate missing frames, wrong dimensions, missing dependencies and inconsistent pivots automatically. Keep editable source assets and engine exports separate. Include at least one regeneration/reimport exercise in the slice to prove revisions are practical.
+
+## Sound effects and recreated soundtrack
+
+Retain the current semantic events, replace their timbres and mix. Create authored SFX families: body/weapon whoosh, material-specific impact, armor break, shield damage/break/recharge, dodge, perfect dodge/parry, tether launch/attach/reel/rebound, loot rarity, extraction start/threat/completion, night transition, base machinery, and enemy identity/attack tells. Favor crisp attack transients, readable midrange detail, short body layers and controlled tails; inspect effects in the full mix. Use multiple curated variations with no immediate repeats, gentle pitch variation, priority and concurrency limits.
+
+Separate threat cues, player actions, enemy actions, ambience, UI and music buses. Duck lower-priority layers during critical tells. Positional attenuation and stereo cues should explain offscreen threats without replacing visual warnings. Dense combat needs fewer simultaneous low-priority voices, not universally louder playback. Provide independent music/SFX/ambience controls, dynamic-range presets and reduction of piercing/flashy feedback where useful.
+
+Recreate music as composed recordings/stems with a new identity: a base motif, daytime exploration, dusk unease, night pursuit, faction/district identities, boss themes and extraction payoff. The first slice needs only base, district traversal/combat stems, night layer and boss/extraction transitions. Use state-driven transitions at musical boundaries, with hysteresis so enemies briefly entering/leaving range do not thrash the score. Do not use the style rank to force constant music escalation through every encounter. Silence and lower-energy exploration give the dramatic moments room.
+
+AI-generated audio must still be selected, edited, looped, checked for transient/phase artifacts and mastered with the rest. Keep lossless production masters and choose playback compression per asset/use. Compose or edit synchronized stems to common tempo/key/bar boundaries; unrelated generated songs do not automatically combine into a coherent adaptive soundtrack. A quality listening review with headphones and ordinary speakers is required; the code audit cannot substitute for it.
+
+## Migration gates and measurable proof
+
+These are proposed acceptance criteria, not claimed results or a calendar estimate.
+
+1. **Reference capture:** record representative combat clips and numeric traces for run/jump/dash/slide/tether, input buffering, parry timing and attack windows. Preserve the browser build and source revision.
+2. **Combat and presentation spike:** new engine, one room, one weapon, one ranged and one melee enemy, authored sprite/effect/audio samples. Compare input response and move distances with the reference; confirm coherent art at gameplay scale. Demonstrate the same combat rules with cosmetic effects reduced or disabled.
+3. **Network risk spike:** host and client on two PCs perform the actual fast movement, parry, tether and boss tell on wired and Wi-Fi LAN, then test simulated 10/30/60 ms round-trip latency, jitter and 1–3% packet loss. Use 100–150 ms as exploratory headroom if internet play becomes relevant. Track corrections, disagreement, duplicate hits and host/client success rates. Target immediate local action presentation, no duplicate damage/loot, and no recurring unavoidable client-only hits. Reject the implementation if the advertised skill checks become systematically unreliable at the supported network envelope.
+4. **Extraction/save spike:** one small district, one objective, one optional boss, two exits, backpack/stash, a meaningful gear/module change and one base upgrade. Exercise death, extraction, disconnect, repeated completion, reload, corrupted save fallback and version migration. An extraction reward must commit once; a crash must not silently manufacture or erase permanent inventory.
+5. **Performance/content gate:** on declared minimum hardware, meet the chosen 60 fps budget (16.7 ms) in the busiest intended slice encounter, including two players and final-style effects; inspect frame-time percentiles and spikes, not an average FPS label. Import one replacement character animation and one district chunk without gameplay-code changes. Verify streaming boundaries preserve enemies, chests, loot and escape routes.
+6. **Playtest/business gate:** only expand if players enjoy repeating the loop, can describe their deaths and improvement, change loadouts meaningfully, and make real stay-or-extract decisions. Use measured asset throughput and the slice's engineering cost to estimate the city and soundtrack. If the slice fails, fix or narrow the loop before purchasing more content volume.
+
+The engine decision is inexpensive relative to years of content only if it is made through this bounded proof. The current prototype has already purchased valuable combat learning; preserve that learning while replacing the production assumptions that conflict with the new game.
