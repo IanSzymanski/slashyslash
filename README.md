@@ -2,6 +2,15 @@
 
 A 2D side-scrolling action demo: a small cyborg with a red katana, fast Warframe-style movement, and an electric tether, fighting scrap gangs and a rival cyborg in a ruined city. Pixel art, sound effects and music are all generated in code, so there are no asset files.
 
+## Design audit and future direction
+
+The [full game design audit](docs/game-design-audit.md) evaluates this prototype against a retro 2D extraction action RPG with persistent progression, base infrastructure, authored assets and LAN co-op. It recommends a separate Godot foundation while preserving this browser game as a combat reference. These documents describe proposed work; the current game remains the demo described below.
+
+- [Windows tooling and MCP checklist](docs/tooling-and-mcp-checklist.md): software, connections and a shared Codex/Claude Code workflow.
+- Supporting audits: [combat](docs/audit-combat-notes.md), [progression/world/co-op](docs/audit-systems-notes.md), and [technology/assets](docs/audit-technology-notes.md).
+- Integration research: [Windows MCP clients](docs/tooling-mcp-research-notes.md) and [Godot/asset tools](docs/tooling-assets-research-notes.md).
+- [Read-only combat probes](docs/audit-combat-probes.cjs): reproduce the audited damage-setting, parry-cancel and counter-healing behavior with `node docs/audit-combat-probes.cjs`. These probes report existing behavior; they are not a regression suite or a human playtest.
+
 ## Running it
 
 Open `index.html` in a desktop browser. No build step or server is needed.
