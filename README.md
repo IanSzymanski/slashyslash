@@ -4,7 +4,7 @@ A 2D side-scrolling action demo: a small cyborg with a red katana, fast Warframe
 
 ## Design audit and future direction
 
-The [full game design audit](docs/game-design-audit.md) evaluates this prototype against a retro 2D extraction action RPG with persistent progression, base infrastructure, authored assets and LAN co-op. It recommends a separate Godot foundation while preserving this browser game as a combat reference. These documents describe proposed work; the current game remains the demo described below.
+The [full game design audit](docs/game-design-audit.md), revised November 15, evaluates this prototype against a retro 2D expedition action RPG with Terraria-inspired persistent characters and secured gear, recoverable field loot, live inventory, primary/secondary build synergies, earned mobility, base infrastructure and LAN co-op. It recommends a separate Godot foundation while preserving this browser game as a combat reference. These documents describe proposed work; the current game remains the demo described below.
 
 - [Windows tooling and MCP checklist](docs/tooling-and-mcp-checklist.md): software, connections and a shared Codex/Claude Code workflow.
 - Supporting audits: [combat](docs/audit-combat-notes.md), [progression/world/co-op](docs/audit-systems-notes.md), and [technology/assets](docs/audit-technology-notes.md).
